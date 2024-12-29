@@ -7,7 +7,7 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{self, MoveToColumn},
+    cursor::{self, MoveToColumn, MoveToRow},
     event::{
         DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
         KeyEventState, KeyModifiers,
@@ -602,20 +602,51 @@ fn main() -> std::io::Result<()> {
                     }
                     if event == Event::Key(ed.config.remove) && ed.entries.len() > 0 {
                         let entry = &ed.entries[ed.current_entry()];
+                        let mut success = false;
                         if entry.is_file() {
                             // TODO: Handle Error
                             let _ = std::fs::remove_file(entry);
+                            success = true;
                         } else if entry.is_dir() {
                             if let Ok(dir) = std::fs::read_dir(entry) {
                                 if dir.count() > 0 {
                                     // TODO: Handle Error
                                     let _ = std::fs::remove_dir_all(entry);
+                                    success = true;
                                 } else {
                                     let _ = std::fs::remove_dir(entry);
+                                    success = true;
                                 }
                             }
                         }
+                        if success {
+                            if ed.scroll > 0 {
+                                ed.scroll -= 1;
+                            }
+                        }
                         ed.refresh(&mut stderr);
+                        if ed.scroll == 0 {
+                            if ed.entries.len() == 0 {
+                                let _ = queue!(&mut stderr, MoveToRow(ed.top));
+                            } else {
+                                let visible_entry_count = {
+                                    let l = ed.entries.len() as u16 - ed.scroll;
+                                    let r = ed.buf_size_row;
+                                    if l > r {
+                                        r
+                                    } else {
+                                        l
+                                    }
+                                };
+                                if ed.current_line >= visible_entry_count {
+                                    ed.current_line = visible_entry_count - 1;
+                                    let _ = queue!(
+                                        &mut stderr,
+                                        MoveToRow(ed.top + visible_entry_count - 1)
+                                    );
+                                }
+                            }
+                        }
                     }
                     if event == Event::Key(ed.config.quit) {
                         stderr.flush()?;
