@@ -20,7 +20,15 @@ use crossterm::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-struct Keybinds {
+struct Config {
+    normal_mode_text: String,
+    insert_mode_text: String,
+    show_entry_number: bool,
+    show_entry_type: bool,
+    directory_text: String,
+    file_text: String,
+    symlink_text: String,
+    other_text: String,
     duplicate: KeyEvent,
     remove: KeyEvent,
     copy: KeyEvent,
@@ -42,6 +50,7 @@ enum EditorMode {
 }
 
 struct Editor {
+    config: Config,
     clipboard: PathBuf,
     mode: EditorMode,
     buffer: Vec<String>,
@@ -148,10 +157,10 @@ impl Editor {
         let _ = queue!(w, cursor::MoveTo(0, 1));
         match self.mode {
             EditorMode::Normal => {
-                let _ = write!(w, "NORMAL");
+                let _ = write!(w, "{}", self.config.normal_mode_text);
             }
             EditorMode::Insert => {
-                let _ = write!(w, "INSERT");
+                let _ = write!(w, "{}", self.config.insert_mode_text);
             }
         };
     }
@@ -173,7 +182,34 @@ impl Editor {
     }
 
     fn render_entry_at(&self, i: usize) -> String {
-        format!("{}: {}", i, &self.buffer[i])
+        let mut result = String::new();
+        if self.config.show_entry_number {
+            result.push_str(&format!(
+                "{:w$}",
+                i,
+                w = self.buffer.len().to_string().len()
+            ))
+        }
+        if self.config.show_entry_type {
+            let entry_type = {
+                if self.entries[i].is_file() {
+                    &self.config.file_text
+                } else if self.entries[i].is_dir() {
+                    &self.config.directory_text
+                } else if self.entries[i].is_symlink() {
+                    &self.config.symlink_text
+                } else {
+                    &self.config.other_text
+                }
+            };
+            if self.config.show_entry_number {
+                result.push(':');
+            }
+            result.push_str(&format!("{entry_type}"));
+        }
+        result.push_str(&format!("| {}", &self.buffer[i]));
+
+        result
     }
     fn current_entry(&self) -> usize {
         (self.current_line + self.scroll) as usize
@@ -221,7 +257,15 @@ fn main() -> std::io::Result<()> {
         custom_conf_detected = true;
         config_file = args[1].clone();
     }
-    let mut keybinds = Keybinds {
+    let mut config = Config {
+        show_entry_number: true,
+        show_entry_type: true,
+        normal_mode_text: String::from("NORMAL"),
+        insert_mode_text: String::from("INSERT"),
+        directory_text: String::from("D"),
+        file_text: String::from("F"),
+        symlink_text: String::from("S"),
+        other_text: String::from("O"),
         duplicate: KeyEvent {
             code: KeyCode::Char('d'),
             modifiers: KeyModifiers::CONTROL,
@@ -303,14 +347,15 @@ fn main() -> std::io::Result<()> {
     };
     if custom_conf_detected {
         if let Ok(config_str) = std::fs::read_to_string(&config_file) {
-            keybinds = toml::from_str(&config_str).expect("Couldn't parse the config file.");
+            config = toml::from_str(&config_str).expect("Couldn't parse the config file.");
         } else {
-            let config =
-                toml::to_string_pretty(&keybinds).expect("Couldn't parse keybinds to config file.");
-            std::fs::write(&config_file, config)?;
+            let config_str =
+                toml::to_string_pretty(&config).expect("Couldn't parse keybinds to config file.");
+            std::fs::write(&config_file, config_str)?;
         }
     }
     let mut ed = Editor {
+        config,
         clipboard: PathBuf::new(),
         mode: EditorMode::Normal,
         left: 2,
@@ -359,19 +404,19 @@ fn main() -> std::io::Result<()> {
             let event = crossterm::event::read()?;
             match ed.mode {
                 EditorMode::Normal => {
-                    if event == Event::Key(keybinds.dir_walk) {
+                    if event == Event::Key(ed.config.dir_walk) {
                         ed.walk(&mut stderr);
                         queue!(
                             stderr,
                             cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
                         )?;
                     }
-                    if event == Event::Key(keybinds.left) {
+                    if event == Event::Key(ed.config.left) {
                         if let Ok(cr) = cursor::position() {
                             queue!(stderr, cursor::MoveToColumn(ed.left.max(cr.0 - 1)))?;
                         }
                     }
-                    if event == Event::Key(keybinds.down) {
+                    if event == Event::Key(ed.config.down) {
                         ed.move_down(&mut stderr);
                         if let Ok(cr) = cursor::position() {
                             queue!(
@@ -382,7 +427,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(keybinds.up) {
+                    if event == Event::Key(ed.config.up) {
                         ed.move_up(&mut stderr);
                         if let Ok(cr) = cursor::position() {
                             queue!(
@@ -393,7 +438,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(keybinds.right) {
+                    if event == Event::Key(ed.config.right) {
                         if let Ok(cr) = cursor::position() {
                             queue!(
                                 stderr,
@@ -404,14 +449,14 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(keybinds.dir_up) {
+                    if event == Event::Key(ed.config.dir_up) {
                         ed.parent(&mut stderr);
                         queue!(
                             stderr,
                             cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
                         )?;
                     }
-                    if event == Event::Key(keybinds.insert_mode) {
+                    if event == Event::Key(ed.config.insert_mode) {
                         ed.mode = EditorMode::Insert;
                         modified_entry = false;
                         if let Ok(cr) = cursor::position() {
@@ -426,7 +471,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(keybinds.duplicate) {
+                    if event == Event::Key(ed.config.duplicate) {
                         let entry_path = &ed.entries[ed.current_entry()];
                         let entry = entry_path.to_str().unwrap();
                         let mut new_entry = entry.to_string();
@@ -442,10 +487,10 @@ fn main() -> std::io::Result<()> {
                         let _ = std::fs::copy(entry_path, new_entry_path);
                         ed.refresh(&mut stderr);
                     }
-                    if event == Event::Key(keybinds.copy) {
+                    if event == Event::Key(ed.config.copy) {
                         ed.clipboard = ed.entries[ed.current_entry()].clone();
                     }
-                    if event == Event::Key(keybinds.paste) {
+                    if event == Event::Key(ed.config.paste) {
                         let entry_path = &ed.clipboard;
 
                         if entry_path.is_file() {
@@ -464,7 +509,7 @@ fn main() -> std::io::Result<()> {
                             ed.refresh(&mut stderr);
                         }
                     }
-                    if event == Event::Key(keybinds.remove) {
+                    if event == Event::Key(ed.config.remove) {
                         let entry = &ed.entries[ed.current_entry()];
                         if entry.is_file() {
                             // TODO: Handle Error
@@ -475,13 +520,13 @@ fn main() -> std::io::Result<()> {
                         }
                         ed.refresh(&mut stderr);
                     }
-                    if event == Event::Key(keybinds.quit) {
+                    if event == Event::Key(ed.config.quit) {
                         stderr.flush()?;
                         break;
                     }
                 }
                 EditorMode::Insert => {
-                    if event == Event::Key(keybinds.normal_mode) {
+                    if event == Event::Key(ed.config.normal_mode) {
                         ed.mode = EditorMode::Normal;
                         if modified_entry {
                             let i = ed.current_entry();
