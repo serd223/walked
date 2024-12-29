@@ -3,11 +3,15 @@ use std::{
     fs::DirEntry,
     io::Write,
     path::{self, PathBuf},
+    str::FromStr,
 };
 
 use crossterm::{
-    cursor,
-    event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind},
+    cursor::{self, MoveToColumn},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers,
+    },
     execute, queue,
     terminal::{
         self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -20,6 +24,7 @@ enum EditorMode {
 }
 
 struct Editor {
+    clipboard: PathBuf,
     mode: EditorMode,
     buffer: Vec<String>,
     left: u16,
@@ -122,7 +127,7 @@ impl Editor {
 
     fn show_badge(&mut self, w: &mut impl std::io::Write) {
         // Implies that Editor.top must be greater that or equal to 2.
-        let _ = queue!(w, cursor::MoveTo(0, self.top - 2));
+        let _ = queue!(w, cursor::MoveTo(0, 1));
         match self.mode {
             EditorMode::Normal => {
                 let _ = write!(w, "NORMAL");
@@ -175,15 +180,27 @@ impl Editor {
             self.show(w, self.top + self.current_line as u16 - self.scroll);
         }
     }
+    fn refresh(&mut self, w: &mut impl std::io::Write) {
+        if let Ok(cr) = cursor::position() {
+            let cl = self.current_line;
+            let scr = self.scroll;
+            self.read_working_dir();
+            self.current_line = cl;
+            self.scroll = scr;
+            self.show(w, cr.1);
+            let _ = queue!(w, MoveToColumn(cr.0));
+        }
+    }
 }
 
 fn main() -> std::io::Result<()> {
     let current_dir =
         PathBuf::from(path::absolute(".").expect("Can't parse current working directory"));
     let mut ed = Editor {
+        clipboard: PathBuf::new(),
         mode: EditorMode::Normal,
         left: 2,
-        top: 3,
+        top: 4,
         bottom: 0,
         buf_size_col: 0,
         buf_size_row: 0,
@@ -293,6 +310,91 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
+                    if matches!(
+                        event,
+                        Event::Key(KeyEvent {
+                            code: KeyCode::Char('d'),
+                            modifiers: KeyModifiers::CONTROL,
+                            kind: KeyEventKind::Press,
+                            ..
+                        })
+                    ) {
+                        // C-d: Duplicate
+                        let entry_path = &ed.entries[ed.current_entry()];
+                        let entry = entry_path.to_str().unwrap();
+                        let mut new_entry = entry.to_string();
+                        let mut new_entry_path = entry_path.clone();
+                        while new_entry_path.exists() {
+                            new_entry += ".1";
+                            // TODO: If the path is somehow corrupted and from_str fails repeatedly, this would result in an infinite loop.
+                            if let Ok(nep) = PathBuf::from_str(&new_entry) {
+                                new_entry_path = nep;
+                            }
+                        }
+                        // TODO: Handle Error
+                        let _ = std::fs::copy(entry_path, new_entry_path);
+                        ed.refresh(&mut stdout);
+                    }
+                    if matches!(
+                        event,
+                        Event::Key(KeyEvent {
+                            code: KeyCode::Char('a'),
+                            modifiers: KeyModifiers::CONTROL,
+                            kind: KeyEventKind::Press,
+                            ..
+                        })
+                    ) {
+                        // C-c: Copy
+                        ed.clipboard = ed.entries[ed.current_entry()].clone();
+                    }
+                    if matches!(
+                        event,
+                        Event::Key(KeyEvent {
+                            code: KeyCode::Char('s'),
+                            modifiers: KeyModifiers::CONTROL,
+                            kind: KeyEventKind::Press,
+                            ..
+                        })
+                    ) {
+                        // C-v: Paste
+                        let entry_path = &ed.clipboard;
+
+                        if entry_path.is_file() {
+                            let mut new_entry_path =
+                                ed.working_directory.join(entry_path.file_name().unwrap());
+                            let mut new_entry = new_entry_path.to_str().unwrap().to_string();
+                            while new_entry_path.exists() {
+                                new_entry += ".1";
+                                // TODO: If the path is somehow corrupted and from_str fails repeatedly, this would result in an infinite loop.
+                                if let Ok(nep) = PathBuf::from_str(&new_entry) {
+                                    new_entry_path = nep;
+                                }
+                            }
+                            // TODO: Handle Error
+                            let _ = std::fs::copy(entry_path, new_entry_path);
+                            ed.refresh(&mut stdout);
+                        }
+                    }
+                    if matches!(
+                        event,
+                        Event::Key(KeyEvent {
+                            code: KeyCode::Char('x'),
+                            modifiers: KeyModifiers::CONTROL,
+                            kind: KeyEventKind::Press,
+                            ..
+                        })
+                    ) {
+                        // C-x: Remove
+                        let entry = &ed.entries[ed.current_entry()];
+                        if entry.is_file() {
+                            // TODO: Handle Error
+                            let _ = std::fs::remove_file(entry);
+                        } else if entry.is_dir() {
+                            // TODO: Handle Error
+                            let _ = std::fs::remove_dir_all(entry);
+                        }
+                        ed.refresh(&mut stdout);
+                    }
                     if event == Event::Key(KeyCode::Char('q').into()) {
                         stdout.flush()?;
                         break;
@@ -308,7 +410,7 @@ fn main() -> std::io::Result<()> {
                         if modified_entry {
                             let i = ed.current_entry();
                             if ed.buffer[i].len() > 0 {
-                                let mut dist = ed.working_directory.to_owned();
+                                let mut dist = ed.working_directory.clone();
                                 dist.push(&ed.buffer[i]);
                                 std::fs::rename(&ed.entries[i], &dist)?;
                                 ed.entries[i] = dist;
@@ -383,5 +485,8 @@ fn main() -> std::io::Result<()> {
     }
 
     execute!(stdout, DisableMouseCapture, LeaveAlternateScreen)?;
-    disable_raw_mode()
+    let res = disable_raw_mode();
+    println!("{}", ed.working_directory.to_str().unwrap());
+
+    res
 }
