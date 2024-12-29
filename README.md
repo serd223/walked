@@ -1,6 +1,24 @@
 # walkEd
 Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. walkEd doesn't try to recreate Dired entirely. I was just inspired by the general style of Dired from what I've seen (never used it).
 
+# Build Instructions
+```
+  $ git clone https://github.com/serd223/wallked.git
+  $ cd walked
+  $ cargo install --path .
+```
+
+For you to be able to change your directory upon quitting `walked`, you will need to add something along the lines of the following script to your autoexec script (.bashrc, Powershell_profile.ps1, etc):
+```powershell
+# Example Powershell profile
+function wd() {
+  # I am not sure why the 3>&1 is necessary, as it just redirects the `Warning` output stream to the `Success` output stream but the script doesn't seem to work without it.
+	cd $(walked.exe 3>&1)
+}
+```
+
+Now, you can use the `wd` command to use `walked` and change your working directory with it.
+
 # Keybinds
 
 ## Configuration

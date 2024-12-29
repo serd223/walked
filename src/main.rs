@@ -324,9 +324,11 @@ fn main() -> std::io::Result<()> {
         entries: vec![],
         current_line: 0,
     };
-    let mut stdout = std::io::stdout();
+
+    // stderr is used because using stdout seems to cause issues when we attempt to use the output of this program to `cd` into the last visited directory.
+    let mut stderr = std::io::stderr();
     execute!(
-        stdout,
+        stderr,
         EnableMouseCapture,
         EnterAlternateScreen,
         cursor::MoveTo(0, 0)
@@ -340,14 +342,14 @@ fn main() -> std::io::Result<()> {
             }
         }
     }
-    execute!(stdout, cursor::MoveTo(ed.left, ed.top))?;
+    execute!(stderr, cursor::MoveTo(ed.left, ed.top))?;
     ed.current_line = 0;
     ed.scroll = 0;
-    ed.show(&mut stdout, ed.top);
+    ed.show(&mut stderr, ed.top);
     ed.current_line = 0;
     ed.scroll = 0;
     queue!(
-        stdout,
+        stderr,
         cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
     )?;
     let mut modified_entry = false;
@@ -358,22 +360,22 @@ fn main() -> std::io::Result<()> {
             match ed.mode {
                 EditorMode::Normal => {
                     if event == Event::Key(keybinds.dir_walk) {
-                        ed.walk(&mut stdout);
+                        ed.walk(&mut stderr);
                         queue!(
-                            stdout,
+                            stderr,
                             cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
                         )?;
                     }
                     if event == Event::Key(keybinds.left) {
                         if let Ok(cr) = cursor::position() {
-                            queue!(stdout, cursor::MoveToColumn(ed.left.max(cr.0 - 1)))?;
+                            queue!(stderr, cursor::MoveToColumn(ed.left.max(cr.0 - 1)))?;
                         }
                     }
                     if event == Event::Key(keybinds.down) {
-                        ed.move_down(&mut stdout);
+                        ed.move_down(&mut stderr);
                         if let Ok(cr) = cursor::position() {
                             queue!(
-                                stdout,
+                                stderr,
                                 cursor::MoveToColumn(
                                     (ed.left + ed.render_current_entry().len() as u16).min(cr.0)
                                 )
@@ -381,10 +383,10 @@ fn main() -> std::io::Result<()> {
                         }
                     }
                     if event == Event::Key(keybinds.up) {
-                        ed.move_up(&mut stdout);
+                        ed.move_up(&mut stderr);
                         if let Ok(cr) = cursor::position() {
                             queue!(
-                                stdout,
+                                stderr,
                                 cursor::MoveToColumn(
                                     (ed.left + ed.render_current_entry().len() as u16).min(cr.0)
                                 )
@@ -394,7 +396,7 @@ fn main() -> std::io::Result<()> {
                     if event == Event::Key(keybinds.right) {
                         if let Ok(cr) = cursor::position() {
                             queue!(
-                                stdout,
+                                stderr,
                                 cursor::MoveToColumn(
                                     (ed.left + ed.render_current_entry().len() as u16)
                                         .min(cr.0 + 1)
@@ -403,9 +405,9 @@ fn main() -> std::io::Result<()> {
                         }
                     }
                     if event == Event::Key(keybinds.dir_up) {
-                        ed.parent(&mut stdout);
+                        ed.parent(&mut stderr);
                         queue!(
-                            stdout,
+                            stderr,
                             cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
                         )?;
                     }
@@ -413,9 +415,9 @@ fn main() -> std::io::Result<()> {
                         ed.mode = EditorMode::Insert;
                         modified_entry = false;
                         if let Ok(cr) = cursor::position() {
-                            ed.show(&mut stdout, cr.1);
+                            ed.show(&mut stderr, cr.1);
                             queue!(
-                                stdout,
+                                stderr,
                                 cursor::MoveToColumn(cr.0.clamp(
                                     ed.left + ed.render_current_entry().len() as u16
                                         - ed.buffer[ed.current_entry()].len() as u16,
@@ -438,7 +440,7 @@ fn main() -> std::io::Result<()> {
                         }
                         // TODO: Handle Error
                         let _ = std::fs::copy(entry_path, new_entry_path);
-                        ed.refresh(&mut stdout);
+                        ed.refresh(&mut stderr);
                     }
                     if event == Event::Key(keybinds.copy) {
                         ed.clipboard = ed.entries[ed.current_entry()].clone();
@@ -459,7 +461,7 @@ fn main() -> std::io::Result<()> {
                             }
                             // TODO: Handle Error
                             let _ = std::fs::copy(entry_path, new_entry_path);
-                            ed.refresh(&mut stdout);
+                            ed.refresh(&mut stderr);
                         }
                     }
                     if event == Event::Key(keybinds.remove) {
@@ -471,10 +473,10 @@ fn main() -> std::io::Result<()> {
                             // TODO: Handle Error
                             let _ = std::fs::remove_dir_all(entry);
                         }
-                        ed.refresh(&mut stdout);
+                        ed.refresh(&mut stderr);
                     }
                     if event == Event::Key(keybinds.quit) {
-                        stdout.flush()?;
+                        stderr.flush()?;
                         break;
                     }
                 }
@@ -498,10 +500,10 @@ fn main() -> std::io::Result<()> {
                                 ed.mode = EditorMode::Insert;
                             }
                         }
-                        ed.show(&mut stdout, ed.top + ed.current_line);
+                        ed.show(&mut stderr, ed.top + ed.current_line);
                         if let Ok(cr) = cursor::position() {
                             queue!(
-                                stdout,
+                                stderr,
                                 cursor::MoveToColumn(
                                     (ed.left + ed.render_current_entry().len() as u16).min(cr.0)
                                 )
@@ -516,9 +518,9 @@ fn main() -> std::io::Result<()> {
                             if cr.0 as usize > name_start {
                                 let _ = ed.buffer[i].remove(cr.0 as usize - name_start - 1);
                                 modified_entry = true;
-                                ed.show(&mut stdout, cr.1);
+                                ed.show(&mut stderr, cr.1);
                                 queue!(
-                                    stdout,
+                                    stderr,
                                     cursor::MoveToColumn(
                                         (ed.left + ed.render_current_entry().len() as u16)
                                             .min(cr.0 - 1)
@@ -540,9 +542,9 @@ fn main() -> std::io::Result<()> {
                                 if let Ok(cr) = cursor::position() {
                                     ed.buffer[i].insert(cr.0 as usize - name_start, c);
                                     modified_entry = true;
-                                    ed.show(&mut stdout, cr.1);
+                                    ed.show(&mut stderr, cr.1);
                                     queue!(
-                                        stdout,
+                                        stderr,
                                         cursor::MoveToColumn(
                                             (ed.left + ed.render_current_entry().len() as u16)
                                                 .min(cr.0 + 1)
@@ -555,14 +557,14 @@ fn main() -> std::io::Result<()> {
                     }
                 }
             }
-            stdout.flush()?;
+            stderr.flush()?;
         }
         Ok(()) as std::io::Result<()>
     } {
         println!("Error: {e}");
     }
 
-    execute!(stdout, DisableMouseCapture, LeaveAlternateScreen)?;
+    execute!(stderr, DisableMouseCapture, LeaveAlternateScreen,)?;
     let res = disable_raw_mode();
     println!("{}", ed.working_directory.to_str().unwrap());
 
