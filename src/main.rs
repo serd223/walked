@@ -74,6 +74,9 @@ impl Editor {
     }
 
     fn move_up(&mut self, w: &mut impl std::io::Write) {
+        if self.entries.len() <= 1 {
+            return;
+        }
         if self.current_line > 0 {
             self.current_line -= 1;
             let _ = queue!(w, cursor::MoveUp(1));
@@ -182,6 +185,9 @@ impl Editor {
     }
 
     fn render_entry_at(&self, i: usize) -> String {
+        if self.entries.len() <= 0 {
+            return String::new();
+        }
         let mut result = String::new();
         if self.config.show_entry_number {
             result.push_str(&format!(
@@ -215,6 +221,9 @@ impl Editor {
         (self.current_line + self.scroll) as usize
     }
     fn walk(&mut self, w: &mut impl std::io::Write) {
+        if self.entries.len() <= 0 {
+            return;
+        }
         let selected = &self.entries[self.current_entry()];
         if selected.is_dir() {
             self.working_directory = selected.clone();
@@ -461,17 +470,21 @@ fn main() -> std::io::Result<()> {
                         modified_entry = false;
                         if let Ok(cr) = cursor::position() {
                             ed.show(&mut stderr, cr.1);
-                            queue!(
-                                stderr,
-                                cursor::MoveToColumn(cr.0.clamp(
-                                    ed.left + ed.render_current_entry().len() as u16
-                                        - ed.buffer[ed.current_entry()].len() as u16,
-                                    ed.left + ed.render_current_entry().len() as u16
-                                ))
-                            )?;
+                            if ed.entries.len() > 0 {
+                                queue!(
+                                    stderr,
+                                    cursor::MoveToColumn(cr.0.clamp(
+                                        ed.left + ed.render_current_entry().len() as u16
+                                            - ed.buffer[ed.current_entry()].len() as u16,
+                                        ed.left + ed.render_current_entry().len() as u16
+                                    ))
+                                )?;
+                            } else {
+                                queue!(stderr, cursor::MoveToColumn(ed.left))?;
+                            }
                         }
                     }
-                    if event == Event::Key(ed.config.duplicate) {
+                    if event == Event::Key(ed.config.duplicate) && ed.entries.len() > 0 {
                         let entry_path = &ed.entries[ed.current_entry()];
                         let entry = entry_path.to_str().unwrap();
                         let mut new_entry = entry.to_string();
@@ -487,7 +500,7 @@ fn main() -> std::io::Result<()> {
                         let _ = std::fs::copy(entry_path, new_entry_path);
                         ed.refresh(&mut stderr);
                     }
-                    if event == Event::Key(ed.config.copy) {
+                    if event == Event::Key(ed.config.copy) && ed.entries.len() > 0 {
                         ed.clipboard = ed.entries[ed.current_entry()].clone();
                     }
                     if event == Event::Key(ed.config.paste) {
@@ -509,14 +522,20 @@ fn main() -> std::io::Result<()> {
                             ed.refresh(&mut stderr);
                         }
                     }
-                    if event == Event::Key(ed.config.remove) {
+                    if event == Event::Key(ed.config.remove) && ed.entries.len() > 0 {
                         let entry = &ed.entries[ed.current_entry()];
                         if entry.is_file() {
                             // TODO: Handle Error
                             let _ = std::fs::remove_file(entry);
                         } else if entry.is_dir() {
-                            // TODO: Handle Error
-                            let _ = std::fs::remove_dir_all(entry);
+                            if let Ok(dir) = std::fs::read_dir(entry) {
+                                if dir.count() > 0 {
+                                    // TODO: Handle Error
+                                    let _ = std::fs::remove_dir_all(entry);
+                                } else {
+                                    let _ = std::fs::remove_dir(entry);
+                                }
+                            }
                         }
                         ed.refresh(&mut stderr);
                     }
@@ -528,7 +547,7 @@ fn main() -> std::io::Result<()> {
                 EditorMode::Insert => {
                     if event == Event::Key(ed.config.normal_mode) {
                         ed.mode = EditorMode::Normal;
-                        if modified_entry {
+                        if modified_entry && ed.entries.len() > 0 {
                             let i = ed.current_entry();
                             if ed.buffer[i].len() > 0 {
                                 let mut dist = ed.working_directory.clone();
@@ -555,7 +574,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(KeyCode::Backspace.into()) {
+                    if event == Event::Key(KeyCode::Backspace.into()) && ed.entries.len() > 0 {
                         let i = ed.current_entry();
                         let name_start =
                             ed.left as usize + ed.render_current_entry().len() - ed.buffer[i].len();
@@ -580,7 +599,9 @@ fn main() -> std::io::Result<()> {
                             kind: KeyEventKind::Press,
                             ..
                         }) => {
-                            if !['\\', '/', ':', '*', '?', '\"', '<', '>', '|'].contains(&c) {
+                            if ed.entries.len() > 0
+                                && !['\\', '/', ':', '*', '?', '\"', '<', '>', '|'].contains(&c)
+                            {
                                 let i = ed.current_entry();
                                 let name_start = ed.left as usize + ed.render_current_entry().len()
                                     - ed.buffer[i].len();
