@@ -213,7 +213,7 @@ impl Editor {
             result.push_str(&format!(
                 "{:w$}",
                 i,
-                w = self.buffer.len().to_string().len()
+                w = self.buffer.len().to_string().chars().count()
             ))
         }
         if self.config.show_entry_type {
@@ -440,7 +440,7 @@ fn main() -> std::io::Result<()> {
     ed.scroll = 0;
     queue!(
         stderr,
-        cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
+        cursor::MoveToColumn(ed.left + ed.render_current_entry().chars().count() as u16)
     )?;
     let mut modified_entry = false;
     if let Err(e) = {
@@ -453,7 +453,9 @@ fn main() -> std::io::Result<()> {
                         ed.walk(&mut stderr);
                         queue!(
                             stderr,
-                            cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
+                            cursor::MoveToColumn(
+                                ed.left + ed.render_current_entry().chars().count() as u16
+                            )
                         )?;
                     }
                     if event == Event::Key(ed.config.left) {
@@ -467,7 +469,8 @@ fn main() -> std::io::Result<()> {
                             queue!(
                                 stderr,
                                 cursor::MoveToColumn(
-                                    (ed.left + ed.render_current_entry().len() as u16).min(cr.0)
+                                    (ed.left + ed.render_current_entry().chars().count() as u16)
+                                        .min(cr.0)
                                 )
                             )?;
                         }
@@ -478,7 +481,8 @@ fn main() -> std::io::Result<()> {
                             queue!(
                                 stderr,
                                 cursor::MoveToColumn(
-                                    (ed.left + ed.render_current_entry().len() as u16).min(cr.0)
+                                    (ed.left + ed.render_current_entry().chars().count() as u16)
+                                        .min(cr.0)
                                 )
                             )?;
                         }
@@ -488,7 +492,7 @@ fn main() -> std::io::Result<()> {
                             queue!(
                                 stderr,
                                 cursor::MoveToColumn(
-                                    (ed.left + ed.render_current_entry().len() as u16)
+                                    (ed.left + ed.render_current_entry().chars().count() as u16)
                                         .min(cr.0 + 1)
                                 )
                             )?;
@@ -498,7 +502,9 @@ fn main() -> std::io::Result<()> {
                         ed.parent(&mut stderr);
                         queue!(
                             stderr,
-                            cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
+                            cursor::MoveToColumn(
+                                ed.left + ed.render_current_entry().chars().count() as u16
+                            )
                         )?;
                     }
                     if event == Event::Key(ed.config.insert_mode) {
@@ -510,9 +516,9 @@ fn main() -> std::io::Result<()> {
                                 queue!(
                                     stderr,
                                     cursor::MoveToColumn(cr.0.clamp(
-                                        ed.left + ed.render_current_entry().len() as u16
-                                            - ed.buffer[ed.current_entry()].len() as u16,
-                                        ed.left + ed.render_current_entry().len() as u16
+                                        ed.left + ed.render_current_entry().chars().count() as u16
+                                            - ed.buffer[ed.current_entry()].chars().count() as u16,
+                                        ed.left + ed.render_current_entry().chars().count() as u16
                                     ))
                                 )?;
                             } else {
@@ -641,15 +647,17 @@ fn main() -> std::io::Result<()> {
                             queue!(
                                 stderr,
                                 cursor::MoveToColumn(
-                                    (ed.left + ed.render_current_entry().len() as u16).min(cr.0)
+                                    (ed.left + ed.render_current_entry().chars().count() as u16)
+                                        .min(cr.0)
                                 )
                             )?;
                         }
                     }
                     if event == Event::Key(KeyCode::Backspace.into()) && ed.entries.len() > 0 {
                         let i = ed.current_entry();
-                        let name_start =
-                            ed.left as usize + ed.render_current_entry().len() - ed.buffer[i].len();
+                        let name_start = ed.left as usize
+                            + ed.render_current_entry().chars().count()
+                            - ed.buffer[i].chars().count();
                         if let Ok(cr) = cursor::position() {
                             if cr.0 as usize > name_start {
                                 let _ = ed.buffer[i].remove(cr.0 as usize - name_start - 1);
@@ -658,7 +666,8 @@ fn main() -> std::io::Result<()> {
                                 queue!(
                                     stderr,
                                     cursor::MoveToColumn(
-                                        (ed.left + ed.render_current_entry().len() as u16)
+                                        (ed.left
+                                            + ed.render_current_entry().chars().count() as u16)
                                             .min(cr.0 - 1)
                                     )
                                 )?;
@@ -675,8 +684,9 @@ fn main() -> std::io::Result<()> {
                                 && !['\\', '/', ':', '*', '?', '\"', '<', '>', '|'].contains(&c)
                             {
                                 let i = ed.current_entry();
-                                let name_start = ed.left as usize + ed.render_current_entry().len()
-                                    - ed.buffer[i].len();
+                                let name_start = ed.left as usize
+                                    + ed.render_current_entry().chars().count()
+                                    - ed.buffer[i].chars().count();
                                 if let Ok(cr) = cursor::position() {
                                     ed.buffer[i].insert(cr.0 as usize - name_start, c);
                                     modified_entry = true;
@@ -684,7 +694,8 @@ fn main() -> std::io::Result<()> {
                                     queue!(
                                         stderr,
                                         cursor::MoveToColumn(
-                                            (ed.left + ed.render_current_entry().len() as u16)
+                                            (ed.left
+                                                + ed.render_current_entry().chars().count() as u16)
                                                 .min(cr.0 + 1)
                                         )
                                     )?;
