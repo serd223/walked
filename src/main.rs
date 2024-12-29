@@ -1,5 +1,5 @@
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs::DirEntry,
     io::Write,
     path::{self, PathBuf},
@@ -25,6 +25,8 @@ struct Config {
     insert_mode_text: String,
     show_entry_number: bool,
     show_entry_type: bool,
+    show_working_directory: bool,
+    simple_working_directory: bool,
     directory_text: String,
     file_text: String,
     symlink_text: String,
@@ -157,8 +159,8 @@ impl Editor {
         }
     }
 
+    /// Assumes that Editor.top is greater than or equal to 3.
     fn show_badge(&mut self, w: &mut impl std::io::Write) {
-        // Implies that Editor.top must be greater that or equal to 2.
         let _ = queue!(w, cursor::MoveTo(0, 1));
         match self.mode {
             EditorMode::Normal => {
@@ -168,6 +170,22 @@ impl Editor {
                 let _ = write!(w, "{}", self.config.insert_mode_text);
             }
         };
+        if self.config.show_working_directory {
+            let _ = queue!(w, cursor::MoveTo(0, 2));
+            if self.config.simple_working_directory {
+                let _ = write!(
+                    w,
+                    "{}",
+                    self.working_directory
+                        .file_name()
+                        .unwrap_or(OsStr::new(""))
+                        .to_str()
+                        .unwrap_or("")
+                );
+            } else {
+                let _ = write!(w, "{}", self.working_directory.to_str().unwrap_or(""));
+            }
+        }
     }
 
     fn show(&mut self, w: &mut impl std::io::Write, cursor_row: u16) {
@@ -271,6 +289,8 @@ fn main() -> std::io::Result<()> {
     let mut config = Config {
         show_entry_number: true,
         show_entry_type: true,
+        show_working_directory: true,
+        simple_working_directory: false,
         normal_mode_text: String::from("NORMAL"),
         insert_mode_text: String::from("INSERT"),
         directory_text: String::from("D"),
@@ -544,8 +564,12 @@ fn main() -> std::io::Result<()> {
                                 new_entry_path = nep;
                             }
                         }
-                        // TODO: Handle Error
-                        let _ = std::fs::copy(entry_path, new_entry_path);
+
+                        // TODO: Add recursive directory duplication
+                        if entry_path.is_file() {
+                            // TODO: Handle Error
+                            let _ = std::fs::copy(entry_path, new_entry_path);
+                        }
                         ed.refresh(&mut stderr);
                     }
                     if event == Event::Key(ed.config.copy) && ed.entries.len() > 0 {
