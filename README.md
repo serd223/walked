@@ -1,5 +1,8 @@
 # walkEd
-Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. walkEd doesn't try to recreate Dired entirely. I was just inspired by the general style of Dired from what I've seen (never used it).
+Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. `walkEd` doesn't try to recreate Dired entirely. I was just inspired by the general style of Dired from what I've seen (never used it).
+
+# Features
+`walkEd` is pretty simple, it can help you navigate through the filesystem and it can duplicate, copy, paste, remove and rename files.
 
 # Build Instructions
 ```
@@ -8,7 +11,7 @@ Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [
   $ cargo install --path .
 ```
 
-For you to be able to change your directory upon quitting `walked`, you will need to add something along the lines of the following script to your autoexec script (.bashrc, Powershell_profile.ps1, etc):
+For you to be able to change your directory upon quitting `walkEd`, you will need to add something along the lines of the following script to your autoexec script (.bashrc, Powershell_profile.ps1, etc):
 ```powershell
 # Example Powershell profile
 function wd() {
@@ -18,12 +21,12 @@ function wd() {
 }
 ```
 
-Now, you can use the `wd` command to use `walked` and change your working directory with it.
+Now, you can use the `wd` command to use `walkEd` and change your working directory with it.
 
 # Keybinds
 
 ## Configuration
-By default, `walked` doesn't have a configuration file. The path to your desired configuration file can be supplied to the program directly as a command line arguement and if the file doesn't exist, `walked` will create the file in the desired path and fill its contents with the default configuration. It is recommended to first run `walked` with your desired configuration file path without creating the file, so later you can edit the generated default configuration easily.
+By default, `walkEd` doesn't have a configuration file. The path to your desired configuration file can be supplied to the program directly as a command line arguement and if the file doesn't exist, `walkEd` will create the file in the desired path and fill its contents with the default configuration. It is recommended to first run `walkEd` with your desired configuration file path without creating the file, so later you can edit the generated default configuration easily.
 ### Example
 ```console
   $ walked myconf.toml
