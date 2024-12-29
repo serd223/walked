@@ -1,11 +1,11 @@
 # walkEd
-Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. `walkEd` doesn't try to recreate Dired entirely. I was just inspired by the general style of Dired from what I've seen (never used it).
+Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. `walkEd` doesn't try to recreate Dired. I was just inspired by the general style of Dired from what I've seen (never used it).
 
 # Features
-`walkEd` is pretty simple, it can help you navigate through the filesystem and it can duplicate, copy, paste, remove and rename files.
+`walkEd` is pretty simple, it can help you navigate through the filesystem and it can duplicate, copy, paste, create, remove and rename files and directories.
 
 # Build Instructions
-```
+```console
   $ git clone https://github.com/serd223/wallked.git
   $ cd walked
   $ cargo install --path .
@@ -38,6 +38,10 @@ By default, `walkEd` doesn't have a configuration file. The path to your desired
 ```
 
 ## Default Keybindings
+`new_file`: Ctrl-n
+
+`new_directory`: Ctrl-m
+
 `duplicate`: Ctrl-d
 
 `remove`: Ctrl-x
