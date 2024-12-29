@@ -29,6 +29,8 @@ struct Config {
     file_text: String,
     symlink_text: String,
     other_text: String,
+    new_file: KeyEvent,
+    new_directory: KeyEvent,
     duplicate: KeyEvent,
     remove: KeyEvent,
     copy: KeyEvent,
@@ -275,6 +277,18 @@ fn main() -> std::io::Result<()> {
         file_text: String::from("F"),
         symlink_text: String::from("S"),
         other_text: String::from("O"),
+        new_file: KeyEvent {
+            code: KeyCode::Char('n'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        new_directory: KeyEvent {
+            code: KeyCode::Char('m'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
         duplicate: KeyEvent {
             code: KeyCode::Char('d'),
             modifiers: KeyModifiers::CONTROL,
@@ -356,7 +370,9 @@ fn main() -> std::io::Result<()> {
     };
     if custom_conf_detected {
         if let Ok(config_str) = std::fs::read_to_string(&config_file) {
-            config = toml::from_str(&config_str).expect("Couldn't parse the config file.");
+            if let Ok(c) = toml::from_str(&config_str) {
+                config = c;
+            }
         } else {
             let config_str =
                 toml::to_string_pretty(&config).expect("Couldn't parse keybinds to config file.");
@@ -483,6 +499,38 @@ fn main() -> std::io::Result<()> {
                                 queue!(stderr, cursor::MoveToColumn(ed.left))?;
                             }
                         }
+                    }
+                    if event == Event::Key(ed.config.new_file) {
+                        let mut new_file = ed.working_directory.join("NEWFILE");
+                        let mut new_file_str = new_file.to_str().unwrap().to_string();
+                        while new_file.exists() {
+                            new_file_str += ".1";
+                            // TODO: If the path is somehow corrupted and from_str fails repeatedly, this would result in an infinite loop.
+                            if let Ok(nf) = PathBuf::from_str(&new_file_str) {
+                                new_file = nf;
+                            }
+                        }
+                        {
+                            // TODO: Handle error.
+                            let _ = std::fs::File::create(new_file);
+                        }
+                        ed.refresh(&mut stderr);
+                    }
+                    if event == Event::Key(ed.config.new_directory) {
+                        let mut new_directory = ed.working_directory.join("NEWDIR");
+                        let mut new_directory_str = new_directory.to_str().unwrap().to_string();
+                        while new_directory.exists() {
+                            new_directory_str += ".1";
+                            // TODO: If the path is somehow corrupted and from_str fails repeatedly, this would result in an infinite loop.
+                            if let Ok(nf) = PathBuf::from_str(&new_directory_str) {
+                                new_directory = nf;
+                            }
+                        }
+                        {
+                            // TODO: Handle error.
+                            let _ = std::fs::create_dir(new_directory);
+                        }
+                        ed.refresh(&mut stderr);
                     }
                     if event == Event::Key(ed.config.duplicate) && ed.entries.len() > 0 {
                         let entry_path = &ed.entries[ed.current_entry()];
