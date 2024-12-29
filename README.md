@@ -1,2 +1,43 @@
 # walkEd
 Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. walkEd doesn't try to recreate Dired entirely. I was just inspired by the general style of Dired from what I've seen (never used it).
+
+# Keybinds
+
+## Configuration
+By default, `walked` doesn't have a configuration file. The path to your desired configuration file can be supplied to the program directly as a command line arguement and if the file doesn't exist, `walked` will create the file in the desired path and fill its contents with the default configuration. It is recommended to first run `walked` with your desired configuration file path without creating the file, so later you can edit the generated default configuration easily.
+### Example
+```console
+  $ walked myconf.toml
+  /walked/working/directory
+  $ vim myconf.toml
+  # edit your config file..
+  $ walked myconf.toml
+  # now walked will be using your desired configuration
+```
+
+## Default Keybindings
+`duplicate`: Ctrl-d
+
+`remove`: Ctrl-x
+
+`copy`: Ctrl-y
+
+`paste`: Ctrl-p
+
+`up`: k
+
+`down`: j
+
+`left`: h
+
+`right`: l
+
+`insert_mode`: i
+
+`normal_mode`: `Escape`
+
+`quit`: q
+
+`dir_walk`: `Space`
+
+`dir_up`: x

@@ -17,7 +17,9 @@ use crossterm::{
         self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
     },
 };
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 struct Keybinds {
     duplicate: KeyEvent,
     remove: KeyEvent,
@@ -212,7 +214,14 @@ impl Editor {
 fn main() -> std::io::Result<()> {
     let current_dir =
         PathBuf::from(path::absolute(".").expect("Can't parse current working directory"));
-    let keybinds = Keybinds {
+    let mut config_file = String::new();
+    let args: Vec<String> = std::env::args().collect();
+    let mut custom_conf_detected = false;
+    if args.len() > 1 {
+        custom_conf_detected = true;
+        config_file = args[1].clone();
+    }
+    let mut keybinds = Keybinds {
         duplicate: KeyEvent {
             code: KeyCode::Char('d'),
             modifiers: KeyModifiers::CONTROL,
@@ -226,13 +235,13 @@ fn main() -> std::io::Result<()> {
             state: KeyEventState::NONE,
         },
         copy: KeyEvent {
-            code: KeyCode::Char('a'),
+            code: KeyCode::Char('y'),
             modifiers: KeyModifiers::CONTROL,
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         },
         paste: KeyEvent {
-            code: KeyCode::Char('s'),
+            code: KeyCode::Char('p'),
             modifiers: KeyModifiers::CONTROL,
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
@@ -292,6 +301,15 @@ fn main() -> std::io::Result<()> {
             state: KeyEventState::NONE,
         },
     };
+    if custom_conf_detected {
+        if let Ok(config_str) = std::fs::read_to_string(&config_file) {
+            keybinds = toml::from_str(&config_str).expect("Couldn't parse the config file.");
+        } else {
+            let config =
+                toml::to_string_pretty(&keybinds).expect("Couldn't parse keybinds to config file.");
+            std::fs::write(&config_file, config)?;
+        }
+    }
     let mut ed = Editor {
         clipboard: PathBuf::new(),
         mode: EditorMode::Normal,
