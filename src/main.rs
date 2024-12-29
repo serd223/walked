@@ -10,13 +10,29 @@ use crossterm::{
     cursor::{self, MoveToColumn},
     event::{
         DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-        KeyModifiers,
+        KeyEventState, KeyModifiers,
     },
     execute, queue,
     terminal::{
         self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
     },
 };
+
+struct Keybinds {
+    duplicate: KeyEvent,
+    remove: KeyEvent,
+    copy: KeyEvent,
+    paste: KeyEvent,
+    up: KeyEvent,
+    down: KeyEvent,
+    left: KeyEvent,
+    right: KeyEvent,
+    dir_walk: KeyEvent,
+    dir_up: KeyEvent,
+    insert_mode: KeyEvent,
+    normal_mode: KeyEvent,
+    quit: KeyEvent,
+}
 
 enum EditorMode {
     Normal,
@@ -196,6 +212,86 @@ impl Editor {
 fn main() -> std::io::Result<()> {
     let current_dir =
         PathBuf::from(path::absolute(".").expect("Can't parse current working directory"));
+    let keybinds = Keybinds {
+        duplicate: KeyEvent {
+            code: KeyCode::Char('d'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        remove: KeyEvent {
+            code: KeyCode::Char('x'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        copy: KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        paste: KeyEvent {
+            code: KeyCode::Char('s'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        up: KeyEvent {
+            code: KeyCode::Char('k'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        down: KeyEvent {
+            code: KeyCode::Char('j'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        left: KeyEvent {
+            code: KeyCode::Char('h'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        right: KeyEvent {
+            code: KeyCode::Char('l'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        insert_mode: KeyEvent {
+            code: KeyCode::Char('i'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        normal_mode: KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        quit: KeyEvent {
+            code: KeyCode::Char('q'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        dir_walk: KeyEvent {
+            code: KeyCode::Char(' '),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+        dir_up: KeyEvent {
+            code: KeyCode::Char('x'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        },
+    };
     let mut ed = Editor {
         clipboard: PathBuf::new(),
         mode: EditorMode::Normal,
@@ -243,19 +339,19 @@ fn main() -> std::io::Result<()> {
             let event = crossterm::event::read()?;
             match ed.mode {
                 EditorMode::Normal => {
-                    if event == Event::Key(KeyCode::Char(' ').into()) {
+                    if event == Event::Key(keybinds.dir_walk) {
                         ed.walk(&mut stdout);
                         queue!(
                             stdout,
                             cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
                         )?;
                     }
-                    if event == Event::Key(KeyCode::Char('h').into()) {
+                    if event == Event::Key(keybinds.left) {
                         if let Ok(cr) = cursor::position() {
                             queue!(stdout, cursor::MoveToColumn(ed.left.max(cr.0 - 1)))?;
                         }
                     }
-                    if event == Event::Key(KeyCode::Char('j').into()) {
+                    if event == Event::Key(keybinds.down) {
                         ed.move_down(&mut stdout);
                         if let Ok(cr) = cursor::position() {
                             queue!(
@@ -266,7 +362,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(KeyCode::Char('k').into()) {
+                    if event == Event::Key(keybinds.up) {
                         ed.move_up(&mut stdout);
                         if let Ok(cr) = cursor::position() {
                             queue!(
@@ -277,7 +373,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(KeyCode::Char('l').into()) {
+                    if event == Event::Key(keybinds.right) {
                         if let Ok(cr) = cursor::position() {
                             queue!(
                                 stdout,
@@ -288,14 +384,14 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if event == Event::Key(KeyCode::Char('x').into()) {
+                    if event == Event::Key(keybinds.dir_up) {
                         ed.parent(&mut stdout);
                         queue!(
                             stdout,
                             cursor::MoveToColumn(ed.left + ed.render_current_entry().len() as u16)
                         )?;
                     }
-                    if event == Event::Key(KeyCode::Char('i').into()) {
+                    if event == Event::Key(keybinds.insert_mode) {
                         ed.mode = EditorMode::Insert;
                         modified_entry = false;
                         if let Ok(cr) = cursor::position() {
@@ -310,16 +406,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    if matches!(
-                        event,
-                        Event::Key(KeyEvent {
-                            code: KeyCode::Char('d'),
-                            modifiers: KeyModifiers::CONTROL,
-                            kind: KeyEventKind::Press,
-                            ..
-                        })
-                    ) {
-                        // C-d: Duplicate
+                    if event == Event::Key(keybinds.duplicate) {
                         let entry_path = &ed.entries[ed.current_entry()];
                         let entry = entry_path.to_str().unwrap();
                         let mut new_entry = entry.to_string();
@@ -335,28 +422,10 @@ fn main() -> std::io::Result<()> {
                         let _ = std::fs::copy(entry_path, new_entry_path);
                         ed.refresh(&mut stdout);
                     }
-                    if matches!(
-                        event,
-                        Event::Key(KeyEvent {
-                            code: KeyCode::Char('a'),
-                            modifiers: KeyModifiers::CONTROL,
-                            kind: KeyEventKind::Press,
-                            ..
-                        })
-                    ) {
-                        // C-c: Copy
+                    if event == Event::Key(keybinds.copy) {
                         ed.clipboard = ed.entries[ed.current_entry()].clone();
                     }
-                    if matches!(
-                        event,
-                        Event::Key(KeyEvent {
-                            code: KeyCode::Char('s'),
-                            modifiers: KeyModifiers::CONTROL,
-                            kind: KeyEventKind::Press,
-                            ..
-                        })
-                    ) {
-                        // C-v: Paste
+                    if event == Event::Key(keybinds.paste) {
                         let entry_path = &ed.clipboard;
 
                         if entry_path.is_file() {
@@ -375,16 +444,7 @@ fn main() -> std::io::Result<()> {
                             ed.refresh(&mut stdout);
                         }
                     }
-                    if matches!(
-                        event,
-                        Event::Key(KeyEvent {
-                            code: KeyCode::Char('x'),
-                            modifiers: KeyModifiers::CONTROL,
-                            kind: KeyEventKind::Press,
-                            ..
-                        })
-                    ) {
-                        // C-x: Remove
+                    if event == Event::Key(keybinds.remove) {
                         let entry = &ed.entries[ed.current_entry()];
                         if entry.is_file() {
                             // TODO: Handle Error
@@ -395,25 +455,27 @@ fn main() -> std::io::Result<()> {
                         }
                         ed.refresh(&mut stdout);
                     }
-                    if event == Event::Key(KeyCode::Char('q').into()) {
+                    if event == Event::Key(keybinds.quit) {
                         stdout.flush()?;
                         break;
                     }
                 }
-                EditorMode::Insert => match event {
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Esc,
-                        kind: KeyEventKind::Press,
-                        ..
-                    }) => {
+                EditorMode::Insert => {
+                    if event == Event::Key(keybinds.normal_mode) {
                         ed.mode = EditorMode::Normal;
                         if modified_entry {
                             let i = ed.current_entry();
                             if ed.buffer[i].len() > 0 {
                                 let mut dist = ed.working_directory.clone();
                                 dist.push(&ed.buffer[i]);
-                                std::fs::rename(&ed.entries[i], &dist)?;
-                                ed.entries[i] = dist;
+                                if dist.exists() {
+                                    if !(dist == ed.entries[i]) {
+                                        ed.mode = EditorMode::Insert;
+                                    }
+                                } else {
+                                    std::fs::rename(&ed.entries[i], &dist)?;
+                                    ed.entries[i] = dist;
+                                }
                             } else {
                                 ed.mode = EditorMode::Insert;
                             }
@@ -428,11 +490,7 @@ fn main() -> std::io::Result<()> {
                             )?;
                         }
                     }
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Backspace,
-                        kind: KeyEventKind::Press,
-                        ..
-                    }) => {
+                    if event == Event::Key(KeyCode::Backspace.into()) {
                         let i = ed.current_entry();
                         let name_start =
                             ed.left as usize + ed.render_current_entry().len() - ed.buffer[i].len();
@@ -451,31 +509,33 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                     }
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Char(c),
-                        kind: KeyEventKind::Press,
-                        ..
-                    }) => {
-                        if !['\\', '/', ':', '*', '?', '\"', '<', '>', '|'].contains(&c) {
-                            let i = ed.current_entry();
-                            let name_start = ed.left as usize + ed.render_current_entry().len()
-                                - ed.buffer[i].len();
-                            if let Ok(cr) = cursor::position() {
-                                ed.buffer[i].insert(cr.0 as usize - name_start, c);
-                                modified_entry = true;
-                                ed.show(&mut stdout, cr.1);
-                                queue!(
-                                    stdout,
-                                    cursor::MoveToColumn(
-                                        (ed.left + ed.render_current_entry().len() as u16)
-                                            .min(cr.0 + 1)
-                                    )
-                                )?;
+                    match event {
+                        Event::Key(KeyEvent {
+                            code: KeyCode::Char(c),
+                            kind: KeyEventKind::Press,
+                            ..
+                        }) => {
+                            if !['\\', '/', ':', '*', '?', '\"', '<', '>', '|'].contains(&c) {
+                                let i = ed.current_entry();
+                                let name_start = ed.left as usize + ed.render_current_entry().len()
+                                    - ed.buffer[i].len();
+                                if let Ok(cr) = cursor::position() {
+                                    ed.buffer[i].insert(cr.0 as usize - name_start, c);
+                                    modified_entry = true;
+                                    ed.show(&mut stdout, cr.1);
+                                    queue!(
+                                        stdout,
+                                        cursor::MoveToColumn(
+                                            (ed.left + ed.render_current_entry().len() as u16)
+                                                .min(cr.0 + 1)
+                                        )
+                                    )?;
+                                }
                             }
                         }
+                        _ => (),
                     }
-                    _ => (),
-                },
+                }
             }
             stdout.flush()?;
         }
