@@ -6,7 +6,7 @@ Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [
 
 # Build Instructions
 ```console
-  $ git clone https://github.com/serd223/wallked.git
+  $ git clone https://github.com/serd223/walked.git
   $ cd walked
   $ cargo install --path .
 ```
