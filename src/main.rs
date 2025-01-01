@@ -310,14 +310,7 @@ fn run<W: ratatui::prelude::Backend>(
             let view = Block::new()
                 .padding(Padding::new(ed.left, 0, ed.top, ed.bottom))
                 .title(ed.working_directory.to_str().unwrap().into_centered_line())
-                .title_bottom(
-                    vec![
-                        ed.mode.to_string(&ed.config).into(),
-                        " | Quit ".into(),
-                        "<Q> ".blue().bold(),
-                    ]
-                    .into_left_aligned_line(),
-                );
+                .title_bottom(vec![ed.mode.to_string(&ed.config).into()].into_centered_line());
 
             if let Some(i) = table_state.selected() {
                 let row_offset = {
