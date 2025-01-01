@@ -337,8 +337,6 @@ fn run<W: ratatui::prelude::Backend>(
                     ed.top + 1 + row_offset,
                 ));
             }
-            // Entire area of the editor
-            // Update
 
             let content = ed
                 .entries
