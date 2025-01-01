@@ -110,27 +110,27 @@ impl Editor {
             }
         }
     }
-    fn walk(&mut self, current_entry: usize) -> bool {
+    fn walk(&mut self, current_entry: usize, table_state: &TableState) -> bool {
         if self.entries.is_empty() {
             return false;
         }
         let selected = &self.entries[current_entry];
         if selected.is_dir() {
             self.working_directory = selected.clone();
-            self.read_working_dir();
+            self.read_working_dir(table_state);
             return true;
         }
         false
     }
-    fn parent(&mut self) -> bool {
+    fn parent(&mut self, table_state: &TableState) -> bool {
         if let Some(p) = self.working_directory.parent() {
             self.working_directory = p.to_path_buf();
-            self.read_working_dir();
+            self.read_working_dir(table_state);
             return true;
         }
         false
     }
-    fn read_working_dir(&mut self) {
+    fn read_working_dir(&mut self, table_state: &TableState) {
         if let Ok(dir) = std::fs::read_dir(&self.working_directory) {
             self.entries.clear();
             for d in dir {
@@ -139,6 +139,7 @@ impl Editor {
                     self.entries.push(p);
                 }
             }
+            self.refresh_cursor(table_state);
         }
     }
 }
@@ -147,10 +148,9 @@ fn run<W: ratatui::prelude::Backend>(
     terminal: &mut Terminal<W>,
     ed: &mut Editor,
 ) -> Result<(), std::io::Error> {
-    ed.read_working_dir();
     let mut table_state = TableState::default();
     table_state.select_first();
-    ed.refresh_cursor(&table_state);
+    ed.read_working_dir(&table_state);
 
     let mut quit = false;
     while !quit {
@@ -161,13 +161,13 @@ fn run<W: ratatui::prelude::Backend>(
                     EditorMode::Normal => {
                         if key_event == ed.config.dir_walk {
                             if let Some(i) = table_state.selected() {
-                                if ed.walk(i) {
+                                if ed.walk(i, &table_state) {
                                     table_state.select_first();
                                     ed.refresh_cursor(&table_state);
                                 }
                             }
                         } else if key_event == ed.config.dir_up {
-                            if ed.parent() {
+                            if ed.parent(&table_state) {
                                 table_state.select_first();
                                 ed.refresh_cursor(&table_state);
                             }
@@ -190,12 +190,12 @@ fn run<W: ratatui::prelude::Backend>(
                             let _ = std::fs::File::create(new_path(
                                 ed.working_directory.join("NEWFILE"),
                             ));
-                            ed.read_working_dir();
+                            ed.read_working_dir(&table_state);
                         } else if key_event == ed.config.new_directory {
                             // TODO: Handle Error
                             let _ =
                                 std::fs::create_dir(new_path(ed.working_directory.join("NEWDIR")));
-                            ed.read_working_dir();
+                            ed.read_working_dir(&table_state);
                         } else if key_event == ed.config.duplicate && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
                                 let entry_path = &ed.entries[current_entry];
@@ -205,7 +205,7 @@ fn run<W: ratatui::prelude::Backend>(
                                 if entry_path.is_file() {
                                     // TODO: Handle Error
                                     let _ = std::fs::copy(entry_path, new_entry_path);
-                                    ed.read_working_dir();
+                                    ed.read_working_dir(&table_state);
                                 }
                             }
                         } else if key_event == ed.config.copy && ed.entries.len() > 0 {
@@ -221,7 +221,7 @@ fn run<W: ratatui::prelude::Backend>(
                                 );
                                 // TODO: Handle Error
                                 let _ = std::fs::copy(entry_path, new_entry_path);
-                                ed.read_working_dir();
+                                ed.read_working_dir(&table_state);
                             }
                         } else if key_event == ed.config.remove && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
@@ -229,16 +229,16 @@ fn run<W: ratatui::prelude::Backend>(
                                 if entry.is_file() {
                                     // TODO: Handle Error
                                     let _ = std::fs::remove_file(entry);
-                                    ed.read_working_dir();
+                                    ed.read_working_dir(&table_state);
                                 } else if entry.is_dir() {
                                     if let Ok(dir) = std::fs::read_dir(entry) {
                                         if dir.count() > 0 {
                                             // TODO: Handle Error
                                             let _ = std::fs::remove_dir_all(entry);
-                                            ed.read_working_dir();
+                                            ed.read_working_dir(&table_state);
                                         } else {
                                             let _ = std::fs::remove_dir(entry);
-                                            ed.read_working_dir();
+                                            ed.read_working_dir(&table_state);
                                         }
                                     }
                                 }
