@@ -309,7 +309,7 @@ fn run<W: ratatui::prelude::Backend>(
             }
             let view = Block::new()
                 .padding(Padding::new(ed.left, 0, ed.top, ed.bottom))
-                .title("walkEd".bold().into_centered_line())
+                .title(ed.working_directory.to_str().unwrap().into_centered_line())
                 .title_bottom(
                     vec![
                         ed.mode.to_string(&ed.config).into(),
