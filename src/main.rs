@@ -14,13 +14,12 @@ use ratatui::{
 };
 
 const TABLE_HEADER_WIDTH: u16 = 8;
-const HIGHLIGHT_SYMBOL: &'static str = ">>";
+const HIGHLIGHT_SYMBOL: &str = ">>";
 fn main() -> Result<(), std::io::Error> {
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(std::io::stderr(), crossterm::terminal::EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(BufWriter::new(std::io::stderr())))?;
-    let current_dir =
-        PathBuf::from(std::path::absolute(".").expect("Can't parse current working directory"));
+    let current_dir = std::path::absolute(".").expect("Can't parse current working directory");
     let mut config = Config::default();
 
     let args: Vec<String> = std::env::args().collect();
@@ -64,9 +63,9 @@ enum EditorMode {
 
 impl EditorMode {
     fn to_string(&self, config: &Config) -> String {
-        match self {
-            &EditorMode::Normal => config.normal_mode_text.clone(),
-            &EditorMode::Insert => config.insert_mode_text.clone(),
+        match *self {
+            EditorMode::Normal => config.normal_mode_text.clone(),
+            EditorMode::Insert => config.insert_mode_text.clone(),
         }
     }
 }
@@ -112,7 +111,7 @@ impl Editor {
         }
     }
     fn walk(&mut self, current_entry: usize) -> bool {
-        if self.entries.len() <= 0 {
+        if self.entries.is_empty() {
             return false;
         }
         let selected = &self.entries[current_entry];
@@ -278,7 +277,7 @@ fn run<W: ratatui::prelude::Backend>(
                                     let mut dist = ed.working_directory.clone();
                                     dist.push(&ed.edit_buffer);
                                     if dist.exists() {
-                                        if !(dist == ed.entries[i]) {
+                                        if dist != ed.entries[i] {
                                             ed.mode = EditorMode::Insert;
                                             denied = true;
                                         }
@@ -294,17 +293,15 @@ fn run<W: ratatui::prelude::Backend>(
                                 table_state.select_column(None);
                                 ed.edit_buffer.clear();
                             }
-                        } else {
-                            if key_event.kind == KeyEventKind::Press {
-                                if key_event.code == KeyCode::Backspace {
-                                    if ed.cursor_offset > 0 {
-                                        ed.edit_buffer.remove(ed.cursor_offset as usize - 1);
-                                        ed.cursor_offset -= 1;
-                                    }
-                                } else if let KeyCode::Char(c) = key_event.code {
-                                    ed.edit_buffer.insert(ed.cursor_offset as usize, c);
-                                    ed.cursor_offset += 1;
+                        } else if key_event.kind == KeyEventKind::Press {
+                            if key_event.code == KeyCode::Backspace {
+                                if ed.cursor_offset > 0 {
+                                    ed.edit_buffer.remove(ed.cursor_offset as usize - 1);
+                                    ed.cursor_offset -= 1;
                                 }
+                            } else if let KeyCode::Char(c) = key_event.code {
+                                ed.edit_buffer.insert(ed.cursor_offset as usize, c);
+                                ed.cursor_offset += 1;
                             }
                         }
                     }
@@ -326,15 +323,12 @@ fn run<W: ratatui::prelude::Backend>(
                 let row_offset = {
                     if i < table_state.offset() {
                         0
+                    } else if ed.entries.len() > 0 {
+                        (i - table_state.offset()).min(
+                            (ed.entries.len() - 1).min(view.inner(f.area()).height as usize - 1),
+                        ) as u16
                     } else {
-                        if ed.entries.len() > 0 {
-                            (i - table_state.offset()).min(
-                                (ed.entries.len() - 1)
-                                    .min(view.inner(f.area()).height as usize - 1),
-                            ) as u16
-                        } else {
-                            0
-                        }
+                        0
                     }
                 };
                 f.set_cursor_position((
@@ -381,7 +375,7 @@ fn run<W: ratatui::prelude::Backend>(
                         if ed.config.show_entry_number {
                             header.push(':');
                         }
-                        header.push_str(&format!("{entry_type}"));
+                        header.push_str(entry_type);
                     }
                     let last = {
                         if let Some(l) = p.file_name() {
