@@ -1,9 +1,6 @@
 mod config;
 
-use std::{
-    io::{BufWriter, Write},
-    path::PathBuf,
-};
+use std::{io::BufWriter, path::PathBuf, str::FromStr};
 
 use config::Config;
 use crossterm::event::{self, Event};
@@ -50,7 +47,6 @@ fn main() -> Result<(), std::io::Error> {
     let result = run(&mut terminal, &mut ed);
     crossterm::terminal::disable_raw_mode()?;
     crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)?;
-    std::io::stdout().flush()?;
     println!("{}", ed.working_directory.to_str().unwrap());
     result
 }
@@ -78,6 +74,16 @@ struct Editor {
     bottom: u16,
     entries: Vec<PathBuf>,
     working_directory: PathBuf,
+}
+
+fn new_path<T: AsRef<std::path::Path>>(p: T) -> PathBuf {
+    let mut res = PathBuf::from(p.as_ref());
+    let mut res_string = res.to_str().unwrap().to_string();
+    while res.exists() {
+        res_string += ".1";
+        res = PathBuf::from_str(&res_string).unwrap()
+    }
+    res
 }
 
 impl Editor {
@@ -157,7 +163,7 @@ fn run<W: ratatui::prelude::Backend>(
                         header.push_str(&format!(
                             "{:w$}",
                             i,
-                            w = ed.entries.len().to_string().chars().count()
+                            w = (ed.entries.len() - 1).to_string().chars().count()
                         ))
                     }
                     if ed.config.show_entry_type {
@@ -183,23 +189,86 @@ fn run<W: ratatui::prelude::Backend>(
 
             // Update
             if let Event::Key(key_event) = event {
-                if key_event == ed.config.dir_walk {
-                    if let Some(i) = table_state.selected() {
-                        if ed.walk(i) {
-                            table_state.select_first();
+                match ed.mode {
+                    EditorMode::Normal => {
+                        if key_event == ed.config.dir_walk {
+                            if let Some(i) = table_state.selected() {
+                                if ed.walk(i) {
+                                    table_state.select_first();
+                                }
+                            }
+                        } else if key_event == ed.config.dir_up {
+                            if ed.parent() {
+                                table_state.select_first();
+                            }
+                        } else if key_event == ed.config.up {
+                            table_state.scroll_up_by(1);
+                        } else if key_event == ed.config.down {
+                            table_state.scroll_down_by(1);
+                        } else if key_event == ed.config.new_file {
+                            // TODO: Handle Error
+                            let _ = std::fs::File::create(new_path(
+                                ed.working_directory.join("NEWFILE"),
+                            ));
+                            ed.read_working_dir();
+                        } else if key_event == ed.config.new_directory {
+                            // TODO: Handle Error
+                            let _ =
+                                std::fs::create_dir(new_path(ed.working_directory.join("NEWDIR")));
+                            ed.read_working_dir();
+                        } else if key_event == ed.config.duplicate && ed.entries.len() > 0 {
+                            if let Some(current_entry) = table_state.selected() {
+                                let entry_path = &ed.entries[current_entry];
+                                let new_entry_path = new_path(entry_path);
+
+                                // TODO: Add recursive directory duplication
+                                if entry_path.is_file() {
+                                    // TODO: Handle Error
+                                    let _ = std::fs::copy(entry_path, new_entry_path);
+                                    ed.read_working_dir();
+                                }
+                            }
+                        } else if key_event == ed.config.copy && ed.entries.len() > 0 {
+                            if let Some(current_entry) = table_state.selected() {
+                                ed.clipboard = ed.entries[current_entry].clone();
+                            }
+                        } else if key_event == ed.config.paste {
+                            let entry_path = &ed.clipboard;
+
+                            if entry_path.is_file() {
+                                let new_entry_path = new_path(
+                                    ed.working_directory.join(entry_path.file_name().unwrap()),
+                                );
+                                // TODO: Handle Error
+                                let _ = std::fs::copy(entry_path, new_entry_path);
+                                ed.read_working_dir();
+                            }
+                        } else if key_event == ed.config.remove && ed.entries.len() > 0 {
+                            if let Some(current_entry) = table_state.selected() {
+                                let entry = &ed.entries[current_entry];
+                                if entry.is_file() {
+                                    // TODO: Handle Error
+                                    let _ = std::fs::remove_file(entry);
+                                    ed.read_working_dir();
+                                } else if entry.is_dir() {
+                                    if let Ok(dir) = std::fs::read_dir(entry) {
+                                        if dir.count() > 0 {
+                                            // TODO: Handle Error
+                                            let _ = std::fs::remove_dir_all(entry);
+                                            ed.read_working_dir();
+                                        } else {
+                                            let _ = std::fs::remove_dir(entry);
+                                            ed.read_working_dir();
+                                        }
+                                    }
+                                }
+                            }
+                        } else if key_event == ed.config.quit {
+                            quit = true;
+                            return;
                         }
                     }
-                } else if key_event == ed.config.dir_up {
-                    if ed.parent() {
-                        table_state.select_first();
-                    }
-                } else if key_event == ed.config.up {
-                    table_state.scroll_up_by(1);
-                } else if key_event == ed.config.down {
-                    table_state.scroll_down_by(1);
-                } else if key_event == ed.config.quit {
-                    quit = true;
-                    return;
+                    EditorMode::Insert => {}
                 }
             }
             f.render_stateful_widget(
