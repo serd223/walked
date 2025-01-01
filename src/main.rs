@@ -3,7 +3,7 @@ mod config;
 use std::{io::BufWriter, path::PathBuf, str::FromStr};
 
 use config::Config;
-use crossterm::event::{self, Event};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
     layout::Constraint,
     prelude::CrosstermBackend,
@@ -13,6 +13,8 @@ use ratatui::{
     Terminal,
 };
 
+const TABLE_HEADER_WIDTH: u16 = 8;
+const HIGHLIGHT_SYMBOL: &'static str = ">>";
 fn main() -> Result<(), std::io::Error> {
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(std::io::stderr(), crossterm::terminal::EnterAlternateScreen)?;
@@ -43,6 +45,9 @@ fn main() -> Result<(), std::io::Error> {
         bottom: 1,
         working_directory: current_dir,
         entries: vec![],
+        edit_buffer: String::new(),
+        cursor_offset: 0,
+        current_entry_length: 0,
     };
     let result = run(&mut terminal, &mut ed);
     crossterm::terminal::disable_raw_mode()?;
@@ -51,6 +56,7 @@ fn main() -> Result<(), std::io::Error> {
     result
 }
 
+#[derive(PartialEq, Eq)]
 enum EditorMode {
     Normal,
     Insert,
@@ -74,6 +80,9 @@ struct Editor {
     bottom: u16,
     entries: Vec<PathBuf>,
     working_directory: PathBuf,
+    edit_buffer: String,
+    cursor_offset: u16,
+    current_entry_length: usize,
 }
 
 fn new_path<T: AsRef<std::path::Path>>(p: T) -> PathBuf {
@@ -87,6 +96,21 @@ fn new_path<T: AsRef<std::path::Path>>(p: T) -> PathBuf {
 }
 
 impl Editor {
+    fn refresh_cursor(&mut self, table_state: &TableState) {
+        if let Some(i) = table_state.selected() {
+            if i < self.entries.len() {
+                let name = {
+                    if let Some(l) = self.entries[i].file_name() {
+                        l.to_str().unwrap().to_string()
+                    } else {
+                        String::new()
+                    }
+                };
+                self.current_entry_length = name.len();
+                self.cursor_offset = self.cursor_offset.min(self.current_entry_length as u16)
+            }
+        }
+    }
     fn walk(&mut self, current_entry: usize) -> bool {
         if self.entries.len() <= 0 {
             return false;
@@ -125,69 +149,14 @@ fn run<W: ratatui::prelude::Backend>(
     ed: &mut Editor,
 ) -> Result<(), std::io::Error> {
     ed.read_working_dir();
-
     let mut table_state = TableState::default();
     table_state.select_first();
+    ed.refresh_cursor(&table_state);
+
     let mut quit = false;
     while !quit {
         let event = event::read()?;
-        // Draw
         terminal.draw(|f| {
-            // Entire area of the editor
-            let view = Block::new()
-                .padding(Padding::new(ed.left, 0, ed.top, ed.bottom))
-                .title("walkEd".bold().into_centered_line())
-                .title_bottom(
-                    vec![
-                        ed.mode.to_string(&ed.config).into(),
-                        " | Quit ".into(),
-                        "<Q> ".blue().bold(),
-                    ]
-                    .into_left_aligned_line(),
-                );
-
-            let content = ed
-                .entries
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let last = {
-                        if let Some(l) = p.file_name() {
-                            l.to_os_string()
-                        } else {
-                            std::ffi::OsString::from("..")
-                        }
-                    };
-                    let mut header = String::new();
-                    if ed.config.show_entry_number {
-                        header.push_str(&format!(
-                            "{:w$}",
-                            i,
-                            w = (ed.entries.len() - 1).to_string().chars().count()
-                        ))
-                    }
-                    if ed.config.show_entry_type {
-                        let entry_type = {
-                            if ed.entries[i].is_file() {
-                                &ed.config.file_text
-                            } else if ed.entries[i].is_dir() {
-                                &ed.config.directory_text
-                            } else if ed.entries[i].is_symlink() {
-                                &ed.config.symlink_text
-                            } else {
-                                &ed.config.other_text
-                            }
-                        };
-                        if ed.config.show_entry_number {
-                            header.push(':');
-                        }
-                        header.push_str(&format!("{entry_type}"));
-                    }
-                    Row::new([header, last.to_str().unwrap().to_string()])
-                })
-                .collect::<Vec<Row>>();
-
-            // Update
             if let Event::Key(key_event) = event {
                 match ed.mode {
                     EditorMode::Normal => {
@@ -195,16 +164,28 @@ fn run<W: ratatui::prelude::Backend>(
                             if let Some(i) = table_state.selected() {
                                 if ed.walk(i) {
                                     table_state.select_first();
+                                    ed.refresh_cursor(&table_state);
                                 }
                             }
                         } else if key_event == ed.config.dir_up {
                             if ed.parent() {
                                 table_state.select_first();
+                                ed.refresh_cursor(&table_state);
                             }
                         } else if key_event == ed.config.up {
                             table_state.scroll_up_by(1);
+                            ed.refresh_cursor(&table_state);
                         } else if key_event == ed.config.down {
                             table_state.scroll_down_by(1);
+                            ed.refresh_cursor(&table_state);
+                        } else if key_event == ed.config.left {
+                            if ed.cursor_offset > 0 {
+                                ed.cursor_offset -= 1;
+                            }
+                        } else if key_event == ed.config.right {
+                            if ed.cursor_offset < ed.current_entry_length as u16 {
+                                ed.cursor_offset += 1;
+                            }
                         } else if key_event == ed.config.new_file {
                             // TODO: Handle Error
                             let _ = std::fs::File::create(new_path(
@@ -263,26 +244,190 @@ fn run<W: ratatui::prelude::Backend>(
                                     }
                                 }
                             }
+                        } else if key_event == ed.config.insert_mode {
+                            if ed.entries.len() > 0 {
+                                ed.mode = EditorMode::Insert;
+                                if let Some(i) = table_state.selected() {
+                                    ed.edit_buffer = {
+                                        if let Some(p) = ed.entries[i].file_name() {
+                                            p.to_str().unwrap().to_string()
+                                        } else {
+                                            "".to_string()
+                                        }
+                                    };
+                                    f.set_cursor_position((
+                                        ed.left + TABLE_HEADER_WIDTH + 1,
+                                        ed.top + 1 + i as u16,
+                                    ));
+                                }
+                                table_state.select_column(Some(1));
+                            }
                         } else if key_event == ed.config.quit {
                             quit = true;
                             return;
                         }
                     }
-                    EditorMode::Insert => {}
+                    EditorMode::Insert => {
+                        if key_event == ed.config.normal_mode
+                            || (key_event.code == KeyCode::Enter
+                                && key_event.kind == KeyEventKind::Press)
+                        {
+                            let mut denied = false;
+                            if let Some(i) = table_state.selected() {
+                                if ed.edit_buffer.len() > 0 && ed.entries.len() > 0 {
+                                    let mut dist = ed.working_directory.clone();
+                                    dist.push(&ed.edit_buffer);
+                                    if dist.exists() {
+                                        if !(dist == ed.entries[i]) {
+                                            ed.mode = EditorMode::Insert;
+                                            denied = true;
+                                        }
+                                    } else {
+                                        // TODO: Handle Error
+                                        let _ = std::fs::rename(&ed.entries[i], &dist);
+                                        ed.entries[i] = dist;
+                                    }
+                                }
+                            }
+                            if !denied {
+                                ed.mode = EditorMode::Normal;
+                                table_state.select_column(None);
+                                ed.edit_buffer.clear();
+                            }
+                        } else {
+                            if key_event.kind == KeyEventKind::Press {
+                                if key_event.code == KeyCode::Backspace {
+                                    if ed.cursor_offset > 0 {
+                                        ed.edit_buffer.remove(ed.cursor_offset as usize - 1);
+                                        ed.cursor_offset -= 1;
+                                    }
+                                } else if let KeyCode::Char(c) = key_event.code {
+                                    ed.edit_buffer.insert(ed.cursor_offset as usize, c);
+                                    ed.cursor_offset += 1;
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            f.render_stateful_widget(
-                Table::default()
-                    .widths([Constraint::Length(8), Constraint::Min(0)])
-                    .rows(content)
-                    .block(view)
-                    .row_highlight_style(Style::new().reversed())
-                    .column_highlight_style(Style::new().red())
-                    .cell_highlight_style(Style::new().blue())
-                    .highlight_symbol(">>"),
-                f.area(),
-                &mut table_state,
-            );
+            let view = Block::new()
+                .padding(Padding::new(ed.left, 0, ed.top, ed.bottom))
+                .title("walkEd".bold().into_centered_line())
+                .title_bottom(
+                    vec![
+                        ed.mode.to_string(&ed.config).into(),
+                        " | Quit ".into(),
+                        "<Q> ".blue().bold(),
+                    ]
+                    .into_left_aligned_line(),
+                );
+
+            if let Some(i) = table_state.selected() {
+                let row_offset = {
+                    if i < table_state.offset() {
+                        0
+                    } else {
+                        if ed.entries.len() > 0 {
+                            (i - table_state.offset()).min(
+                                (ed.entries.len() - 1)
+                                    .min(view.inner(f.area()).height as usize - 1),
+                            ) as u16
+                        } else {
+                            0
+                        }
+                    }
+                };
+                f.set_cursor_position((
+                    ed.left
+                        + TABLE_HEADER_WIDTH
+                        + 1
+                        + ed.cursor_offset
+                        + if ed.mode == EditorMode::Normal {
+                            HIGHLIGHT_SYMBOL.chars().count() as u16
+                        } else {
+                            0
+                        },
+                    ed.top + 1 + row_offset,
+                ));
+            }
+            // Entire area of the editor
+            // Update
+
+            let content = ed
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let mut header = String::new();
+                    if ed.config.show_entry_number {
+                        header.push_str(&format!(
+                            "{:w$}",
+                            i,
+                            w = (ed.entries.len() - 1).to_string().chars().count()
+                        ))
+                    }
+                    if ed.config.show_entry_type {
+                        let entry_type = {
+                            if ed.entries[i].is_file() {
+                                &ed.config.file_text
+                            } else if ed.entries[i].is_dir() {
+                                &ed.config.directory_text
+                            } else if ed.entries[i].is_symlink() {
+                                &ed.config.symlink_text
+                            } else {
+                                &ed.config.other_text
+                            }
+                        };
+                        if ed.config.show_entry_number {
+                            header.push(':');
+                        }
+                        header.push_str(&format!("{entry_type}"));
+                    }
+                    let last = {
+                        if let Some(l) = p.file_name() {
+                            l.to_os_string()
+                        } else {
+                            std::ffi::OsString::from("..")
+                        }
+                    };
+                    if ed.mode == EditorMode::Insert {
+                        if let Some(selected) = table_state.selected() {
+                            if selected == i {
+                                return Row::new([header, ed.edit_buffer.clone()]);
+                            }
+                        }
+                    }
+                    Row::new([header, last.to_str().unwrap().to_string()])
+                })
+                .collect::<Vec<Row>>();
+
+            match ed.mode {
+                EditorMode::Normal => {
+                    f.render_stateful_widget(
+                        Table::default()
+                            .widths([Constraint::Length(TABLE_HEADER_WIDTH), Constraint::Min(0)])
+                            .rows(content)
+                            .block(view)
+                            .row_highlight_style(Style::new().reversed())
+                            .column_highlight_style(Style::new().red())
+                            .cell_highlight_style(Style::new().blue())
+                            .highlight_symbol(HIGHLIGHT_SYMBOL),
+                        f.area(),
+                        &mut table_state,
+                    );
+                }
+                EditorMode::Insert => {
+                    f.render_stateful_widget(
+                        Table::default()
+                            .widths([Constraint::Length(TABLE_HEADER_WIDTH), Constraint::Min(0)])
+                            .rows(content)
+                            .block(view)
+                            .cell_highlight_style(Style::new().underlined()),
+                        f.area(),
+                        &mut table_state,
+                    );
+                }
+            }
         })?;
     }
     Ok(())
