@@ -15,9 +15,7 @@ For you to be able to change your directory upon quitting `walkEd`, you will nee
 ```powershell
 # Example Powershell profile
 function wd() {
-  # I am not sure why the 3>&1 is necessary, as it just redirects the `Warning` output
-  # stream to the `Success` output stream but the script doesn't seem to work without it.
-  cd $(walked.exe 3>&1)
+  cd $(walked.exe)
 }
 ```
 
