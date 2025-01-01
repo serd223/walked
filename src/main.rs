@@ -1,21 +1,57 @@
 mod config;
 
-use std::path::PathBuf;
+use std::{
+    io::{BufWriter, Write},
+    path::PathBuf,
+};
 
 use config::Config;
 use crossterm::event::{self, Event};
 use ratatui::{
     layout::Constraint,
+    prelude::CrosstermBackend,
     style::{Style, Stylize},
     text::Line,
     widgets::{Block, Padding, Row, Table, TableState},
-    DefaultTerminal,
+    Terminal,
 };
 
 fn main() -> Result<(), std::io::Error> {
-    let terminal = ratatui::init();
-    let result = run(terminal);
-    ratatui::restore();
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(std::io::stderr(), crossterm::terminal::EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(BufWriter::new(std::io::stderr())))?;
+    let current_dir =
+        PathBuf::from(std::path::absolute(".").expect("Can't parse current working directory"));
+    let mut config = Config::default();
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        if let Ok(config_str) = std::fs::read_to_string(&args[1]) {
+            if let Ok(c) = toml::from_str(&config_str) {
+                config = c;
+            }
+        } else {
+            let config_str =
+                toml::to_string_pretty(&config).expect("Couldn't parse keybinds to config file.");
+            std::fs::write(&args[1], config_str)?;
+        }
+    }
+
+    let mut ed = Editor {
+        config,
+        clipboard: PathBuf::new(),
+        mode: EditorMode::Normal,
+        left: 2,
+        top: 2,
+        bottom: 1,
+        working_directory: current_dir,
+        entries: vec![],
+    };
+    let result = run(&mut terminal, &mut ed);
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)?;
+    std::io::stdout().flush()?;
+    println!("{}", ed.working_directory.to_str().unwrap());
     result
 }
 
@@ -78,36 +114,11 @@ impl Editor {
     }
 }
 
-fn run(mut terminal: DefaultTerminal) -> Result<(), std::io::Error> {
-    let current_dir =
-        PathBuf::from(std::path::absolute(".").expect("Can't parse current working directory"));
-    let mut config = Config::default();
-
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        if let Ok(config_str) = std::fs::read_to_string(&args[1]) {
-            if let Ok(c) = toml::from_str(&config_str) {
-                config = c;
-            }
-        } else {
-            let config_str =
-                toml::to_string_pretty(&config).expect("Couldn't parse keybinds to config file.");
-            std::fs::write(&args[1], config_str)?;
-        }
-    }
-
-    let mut ed = Editor {
-        config,
-        clipboard: PathBuf::new(),
-        mode: EditorMode::Normal,
-        left: 2,
-        top: 2,
-        bottom: 1,
-        working_directory: current_dir,
-        entries: vec![],
-    };
+fn run<W: ratatui::prelude::Backend>(
+    terminal: &mut Terminal<W>,
+    ed: &mut Editor,
+) -> Result<(), std::io::Error> {
     ed.read_working_dir();
-    ed.parent();
 
     let mut table_state = TableState::default();
     table_state.select_first();
