@@ -153,8 +153,20 @@ fn run<W: ratatui::prelude::Backend>(
     ed.refresh_cursor(&table_state);
 
     let mut quit = false;
+    let mut start = true;
     while !quit {
-        let event = event::read()?;
+        // needed because otherwise the applications hangs until you press a key on startup.
+        // i could just change the order of event processing and drawing, but i am pretty sure that
+        // i made certain assumptions regarding their order of execution while writing this but tbh i dont remember
+        // the spesifics so i feel like this hack is okay
+        let event = {
+            if start {
+                start = false;
+                Event::FocusGained
+            } else {
+                event::read()?
+            }
+        };
         terminal.draw(|f| {
             if let Event::Key(key_event) = event {
                 match ed.mode {
