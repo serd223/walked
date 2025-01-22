@@ -50,7 +50,7 @@ impl Default for Config {
                 state: KeyEventState::NONE,
             },
             new_directory: KeyEvent {
-                code: KeyCode::Char('m'),
+                code: KeyCode::Char('b'),
                 modifiers: KeyModifiers::CONTROL,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
