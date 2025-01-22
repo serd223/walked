@@ -1,5 +1,7 @@
 # walkEd
-Terminal file manager inspired by [Emacs](https://www.gnu.org/software/emacs/) [Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html) as a concept. `walkEd` doesn't try to recreate Dired. I was just inspired by the general style of Dired from what I've seen (never used it).
+Simple terminal file manager
+
+![walked_demonstration.gif](github/walked_demonstration.gif)
 
 # Features
 `walkEd` is pretty simple, it can help you navigate through the filesystem and it can duplicate, copy, paste, create, remove and rename files and directories.
