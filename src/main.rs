@@ -171,6 +171,27 @@ fn run<W: ratatui::prelude::Backend>(
             if let Event::Key(key_event) = event {
                 match ed.mode {
                     EditorMode::Normal => {
+                        fn copy_recursively(src: &PathBuf, dest: &PathBuf) {
+                            if let Ok(dir) = std::fs::read_dir(src) {
+                                for d in dir {
+                                    if let Ok(d) = d {
+                                        let p = d.path();
+                                        if p.is_file() {
+                                            let file = p.file_name().unwrap();
+                                            let new_file = dest.join(file);
+                                            // TODO: Handle Error
+                                            let _ = std::fs::copy(p, new_file);
+                                        } else if p.is_dir() {
+                                            let dir = p.file_name().unwrap();
+                                            let new_dir = dest.join(dir);
+                                            // TODO: Handle Error
+                                            let _ = std::fs::create_dir(&new_dir);
+                                            copy_recursively(&p, &new_dir);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if key_event == ed.config.dir_walk {
                             if let Some(i) = table_state.selected() {
                                 if ed.walk(i) {
@@ -213,10 +234,15 @@ fn run<W: ratatui::prelude::Backend>(
                                 let entry_path = &ed.entries[current_entry];
                                 let new_entry_path = new_path(entry_path);
 
-                                // TODO: Add recursive directory duplication
                                 if entry_path.is_file() {
                                     // TODO: Handle Error
                                     let _ = std::fs::copy(entry_path, new_entry_path);
+                                    ed.read_working_dir();
+                                } else if entry_path.is_dir() {
+                                    let new_dir = new_path(entry_path);
+                                    // TODO: Handle Error
+                                    let _ = std::fs::create_dir(&new_dir);
+                                    copy_recursively(entry_path, &new_dir);
                                     ed.read_working_dir();
                                 }
                             }
@@ -226,13 +252,18 @@ fn run<W: ratatui::prelude::Backend>(
                             }
                         } else if key_event == ed.config.paste {
                             let entry_path = &ed.clipboard;
+                            let new_entry_path = new_path(
+                                ed.working_directory.join(entry_path.file_name().unwrap()),
+                            );
 
                             if entry_path.is_file() {
-                                let new_entry_path = new_path(
-                                    ed.working_directory.join(entry_path.file_name().unwrap()),
-                                );
                                 // TODO: Handle Error
                                 let _ = std::fs::copy(entry_path, new_entry_path);
+                                ed.read_working_dir();
+                            } else if entry_path.is_dir() {
+                                // TODO: Handle Error
+                                let _ = std::fs::create_dir(&new_entry_path);
+                                copy_recursively(entry_path, &new_entry_path);
                                 ed.read_working_dir();
                             }
                         } else if key_event == ed.config.remove && ed.entries.len() > 0 {
