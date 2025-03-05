@@ -40,7 +40,7 @@ By default, `walkEd` doesn't have a configuration file. The path to your desired
 ## Default Keybindings
 `new_file`: Ctrl-n
 
-`new_directory`: Ctrl-m
+`new_directory`: Ctrl-b
 
 `duplicate`: Ctrl-d
 
