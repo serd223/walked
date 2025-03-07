@@ -13,6 +13,50 @@ use ratatui::{
     Terminal,
 };
 
+#[derive(Debug)]
+pub enum PathKind {
+    File,
+    Dir,
+    Ambigious,
+}
+
+#[derive(Debug)]
+pub enum WalkedError {
+    PathNotFound { path: PathBuf, path_kind: PathKind },
+    PermissionDenied { path: PathBuf, path_kind: PathKind },
+    Message(String),
+}
+
+impl std::fmt::Display for WalkedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WalkedError::PathNotFound { path, path_kind } => write!(
+                f,
+                "Couldn't find {} '{}'",
+                match path_kind {
+                    PathKind::File => "file",
+                    PathKind::Dir => "directory",
+                    PathKind::Ambigious => "entry",
+                },
+                path.display()
+            ),
+            WalkedError::PermissionDenied { path, path_kind } => write!(
+                f,
+                "Couldn't access {} '{}'",
+                match path_kind {
+                    PathKind::File => "file",
+                    PathKind::Dir => "directory",
+                    PathKind::Ambigious => "entry",
+                },
+                path.display()
+            ),
+            WalkedError::Message(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for WalkedError {}
+
 const TABLE_HEADER_WIDTH: u16 = 8;
 const HIGHLIGHT_SYMBOL: &str = ">>";
 fn main() -> Result<(), std::io::Error> {
@@ -94,6 +138,67 @@ fn new_path<T: AsRef<std::path::Path>>(p: T) -> PathBuf {
     res
 }
 
+/// `dest` folder should already exist.
+fn copy_recursively(src: &PathBuf, dest: &PathBuf, errors: &mut Vec<WalkedError>) {
+    if let Ok(dir) = std::fs::read_dir(src) {
+        for d in dir {
+            if let Ok(d) = d {
+                let p = d.path();
+                if p.is_file() {
+                    let file = p.file_name().unwrap();
+                    let new_file = dest.join(file);
+                    if let Err(err) = std::fs::copy(&p, &new_file) {
+                        match err.kind() {
+                            std::io::ErrorKind::NotFound => {
+                                errors.push(WalkedError::PathNotFound {
+                                    path: p,
+                                    path_kind: PathKind::File,
+                                })
+                            }
+                            std::io::ErrorKind::PermissionDenied => {
+                                errors.push(WalkedError::PermissionDenied {
+                                    path: new_file,
+                                    path_kind: PathKind::File,
+                                })
+                            }
+                            _ => errors.push(WalkedError::Message(format!(
+                                "Couldn't copy file from '{}' to '{}'",
+                                p.display(),
+                                new_file.display()
+                            ))),
+                        }
+                    }
+                } else if p.is_dir() {
+                    let dir = p.file_name().unwrap();
+                    let new_dir = dest.join(dir);
+                    if let Err(err) = std::fs::create_dir(&new_dir) {
+                        match err.kind() {
+                            std::io::ErrorKind::NotFound => {
+                                errors.push(WalkedError::PathNotFound {
+                                    path: new_dir,
+                                    path_kind: PathKind::Dir,
+                                })
+                            }
+                            std::io::ErrorKind::PermissionDenied => {
+                                errors.push(WalkedError::PermissionDenied {
+                                    path: new_dir,
+                                    path_kind: PathKind::Dir,
+                                })
+                            }
+                            _ => errors.push(WalkedError::Message(format!(
+                                "Couldn't create directory '{}'",
+                                new_dir.display()
+                            ))),
+                        }
+                    } else {
+                        copy_recursively(&p, &new_dir, errors);
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl Editor {
     fn refresh_cursor(&mut self, table_state: &TableState) {
         if let Some(i) = table_state.selected() {
@@ -105,7 +210,7 @@ impl Editor {
                         String::new()
                     }
                 };
-                self.current_entry_length = name.len();
+                self.current_entry_length = name.chars().count();
                 self.cursor_offset = self.cursor_offset.min(self.current_entry_length as u16)
             }
         }
@@ -151,10 +256,10 @@ fn run<W: ratatui::prelude::Backend>(
     let mut table_state = TableState::default();
     table_state.select_first();
     ed.refresh_cursor(&table_state);
+    let mut errors = Vec::new();
 
-    let mut quit = false;
     let mut start = true;
-    while !quit {
+    loop {
         // needed because otherwise the applications hangs until you press a key on startup.
         // i could just change the order of event processing and drawing, but i am pretty sure that
         // i made certain assumptions regarding their order of execution while writing this but tbh i dont remember
@@ -167,31 +272,19 @@ fn run<W: ratatui::prelude::Backend>(
                 event::read()?
             }
         };
-        terminal.draw(|f| {
-            if let Event::Key(key_event) = event {
+        let mut set_cursor = None;
+        if let Event::Key(key_event) = event {
+            if errors.len() > 0 {
+                if key_event.code == KeyCode::Char(' ')
+                    || key_event.code == KeyCode::Esc
+                    || key_event.code == KeyCode::Backspace
+                    || key_event.code == KeyCode::Tab
+                {
+                    errors.clear();
+                }
+            } else {
                 match ed.mode {
                     EditorMode::Normal => {
-                        fn copy_recursively(src: &PathBuf, dest: &PathBuf) {
-                            if let Ok(dir) = std::fs::read_dir(src) {
-                                for d in dir {
-                                    if let Ok(d) = d {
-                                        let p = d.path();
-                                        if p.is_file() {
-                                            let file = p.file_name().unwrap();
-                                            let new_file = dest.join(file);
-                                            // TODO: Handle Error
-                                            let _ = std::fs::copy(p, new_file);
-                                        } else if p.is_dir() {
-                                            let dir = p.file_name().unwrap();
-                                            let new_dir = dest.join(dir);
-                                            // TODO: Handle Error
-                                            let _ = std::fs::create_dir(&new_dir);
-                                            copy_recursively(&p, &new_dir);
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         if key_event == ed.config.dir_walk {
                             if let Some(i) = table_state.selected() {
                                 if ed.walk(i) {
@@ -219,15 +312,38 @@ fn run<W: ratatui::prelude::Backend>(
                                 ed.cursor_offset += 1;
                             }
                         } else if key_event == ed.config.new_file {
-                            // TODO: Handle Error
-                            let _ = std::fs::File::create(new_path(
-                                ed.working_directory.join("NEWFILE"),
-                            ));
+                            let new_file = new_path(ed.working_directory.join("NEWFILE"));
+                            if let Err(err) = std::fs::File::create(&new_file) {
+                                match err.kind() {
+                                    std::io::ErrorKind::PermissionDenied => {
+                                        errors.push(WalkedError::PermissionDenied {
+                                            path: new_file,
+                                            path_kind: PathKind::File,
+                                        })
+                                    }
+                                    _ => errors.push(WalkedError::Message(format!(
+                                        "Couldn't create file '{}'",
+                                        new_file.display()
+                                    ))),
+                                }
+                            }
                             ed.read_working_dir();
                         } else if key_event == ed.config.new_directory {
-                            // TODO: Handle Error
-                            let _ =
-                                std::fs::create_dir(new_path(ed.working_directory.join("NEWDIR")));
+                            let new_dir = new_path(ed.working_directory.join("NEWDIR"));
+                            if let Err(err) = std::fs::create_dir(&new_dir) {
+                                match err.kind() {
+                                    std::io::ErrorKind::PermissionDenied => {
+                                        errors.push(WalkedError::PermissionDenied {
+                                            path: new_dir,
+                                            path_kind: PathKind::Dir,
+                                        })
+                                    }
+                                    _ => errors.push(WalkedError::Message(format!(
+                                        "Couldn't create directory '{}'",
+                                        new_dir.display()
+                                    ))),
+                                }
+                            }
                             ed.read_working_dir();
                         } else if key_event == ed.config.duplicate && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
@@ -235,14 +351,47 @@ fn run<W: ratatui::prelude::Backend>(
                                 let new_entry_path = new_path(entry_path);
 
                                 if entry_path.is_file() {
-                                    // TODO: Handle Error
-                                    let _ = std::fs::copy(entry_path, new_entry_path);
+                                    if let Err(err) = std::fs::copy(entry_path, &new_entry_path) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::NotFound => {
+                                                errors.push(WalkedError::PathNotFound {
+                                                    path: entry_path.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                errors.push(WalkedError::PermissionDenied {
+                                                    path: new_entry_path,
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            _ => errors.push(WalkedError::Message(format!(
+                                                "Couldn't copy file from '{}' to '{}'",
+                                                entry_path.display(),
+                                                new_entry_path.display()
+                                            ))),
+                                        }
+                                    }
+
                                     ed.read_working_dir();
                                 } else if entry_path.is_dir() {
                                     let new_dir = new_path(entry_path);
-                                    // TODO: Handle Error
-                                    let _ = std::fs::create_dir(&new_dir);
-                                    copy_recursively(entry_path, &new_dir);
+                                    if let Err(err) = std::fs::create_dir(&new_dir) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                errors.push(WalkedError::PermissionDenied {
+                                                    path: new_dir,
+                                                    path_kind: PathKind::Dir,
+                                                })
+                                            }
+                                            _ => errors.push(WalkedError::Message(format!(
+                                                "Couldn't create directory '{}'",
+                                                new_dir.display()
+                                            ))),
+                                        }
+                                    } else {
+                                        copy_recursively(entry_path, &new_dir, &mut errors);
+                                    }
                                     ed.read_working_dir();
                                 }
                             }
@@ -257,33 +406,99 @@ fn run<W: ratatui::prelude::Backend>(
                             );
 
                             if entry_path.is_file() {
-                                // TODO: Handle Error
-                                let _ = std::fs::copy(entry_path, new_entry_path);
+                                if let Err(err) = std::fs::copy(entry_path, &new_entry_path) {
+                                    match err.kind() {
+                                        std::io::ErrorKind::NotFound => {
+                                            errors.push(WalkedError::PathNotFound {
+                                                path: entry_path.clone(),
+                                                path_kind: PathKind::File,
+                                            })
+                                        }
+                                        std::io::ErrorKind::PermissionDenied => {
+                                            errors.push(WalkedError::PermissionDenied {
+                                                path: new_entry_path,
+                                                path_kind: PathKind::File,
+                                            })
+                                        }
+                                        _ => errors.push(WalkedError::Message(format!(
+                                            "Couldn't copy file from '{}' to '{}'",
+                                            entry_path.display(),
+                                            new_entry_path.display()
+                                        ))),
+                                    }
+                                }
                                 ed.read_working_dir();
                             } else if entry_path.is_dir() {
-                                // TODO: Handle Error
-                                let _ = std::fs::create_dir(&new_entry_path);
-                                copy_recursively(entry_path, &new_entry_path);
+                                if let Err(err) = std::fs::create_dir(&new_entry_path) {
+                                    match err.kind() {
+                                        std::io::ErrorKind::PermissionDenied => {
+                                            errors.push(WalkedError::PermissionDenied {
+                                                path: new_entry_path,
+                                                path_kind: PathKind::Dir,
+                                            })
+                                        }
+                                        _ => errors.push(WalkedError::Message(format!(
+                                            "Couldn't create directory '{}'",
+                                            new_entry_path.display()
+                                        ))),
+                                    }
+                                } else {
+                                    copy_recursively(entry_path, &new_entry_path, &mut errors);
+                                }
                                 ed.read_working_dir();
                             }
                         } else if key_event == ed.config.remove && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
                                 let entry = &ed.entries[current_entry];
                                 if entry.is_file() {
-                                    // TODO: Handle Error
-                                    let _ = std::fs::remove_file(entry);
+                                    if let Err(err) = std::fs::remove_file(entry) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::NotFound => {
+                                                errors.push(WalkedError::PathNotFound {
+                                                    path: entry.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                errors.push(WalkedError::PermissionDenied {
+                                                    path: entry.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            _ => errors.push(WalkedError::Message(format!(
+                                                "Couldn't remove file '{}'",
+                                                entry.display()
+                                            ))),
+                                        }
+                                    }
                                     ed.read_working_dir();
                                 } else if entry.is_dir() {
                                     if let Ok(dir) = std::fs::read_dir(entry) {
-                                        if dir.count() > 0 {
-                                            // TODO: Handle Error
-                                            let _ = std::fs::remove_dir_all(entry);
-                                            ed.read_working_dir();
+                                        if let Err(err) = if dir.count() > 0 {
+                                            std::fs::remove_dir_all(entry)
                                         } else {
-                                            // TODO: Handle Error
-                                            let _ = std::fs::remove_dir(entry);
-                                            ed.read_working_dir();
+                                            std::fs::remove_dir(entry)
+                                        } {
+                                            match err.kind() {
+                                                std::io::ErrorKind::NotFound => {
+                                                    errors.push(WalkedError::PathNotFound {
+                                                        path: entry.clone(),
+                                                        path_kind: PathKind::Dir,
+                                                    })
+                                                }
+                                                std::io::ErrorKind::PermissionDenied => errors
+                                                    .push(WalkedError::PermissionDenied {
+                                                        path: entry.clone(),
+                                                        path_kind: PathKind::Dir,
+                                                    }),
+                                                _ => errors.push(WalkedError::Message(format!(
+                                                    "Couldn't remove directory '{}'",
+                                                    entry.display()
+                                                ))),
+                                            }
                                         }
+
+                                        ed.read_working_dir();
                                     }
                                 }
                             }
@@ -298,7 +513,7 @@ fn run<W: ratatui::prelude::Backend>(
                                             "".to_string()
                                         }
                                     };
-                                    f.set_cursor_position((
+                                    set_cursor = Some((
                                         ed.left + TABLE_HEADER_WIDTH + 1,
                                         ed.top + 1 + i as u16,
                                     ));
@@ -306,8 +521,7 @@ fn run<W: ratatui::prelude::Backend>(
                                 table_state.select_column(Some(1));
                             }
                         } else if key_event == ed.config.quit {
-                            quit = true;
-                            return;
+                            return Ok(());
                         }
                         ed.refresh_cursor(&table_state);
                     }
@@ -321,15 +535,44 @@ fn run<W: ratatui::prelude::Backend>(
                                 if ed.edit_buffer.len() > 0 && ed.entries.len() > 0 {
                                     let mut dist = ed.working_directory.clone();
                                     dist.push(&ed.edit_buffer);
-                                    if dist.exists() {
+                                    let disallowed_chars =
+                                        ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+                                    if ed.edit_buffer.contains(&disallowed_chars) {
+                                        ed.mode = EditorMode::Insert;
+                                        denied = true;
+                                        errors.push(WalkedError::Message(format!("Paths can't contain the following characters: {disallowed_chars:?}")));
+                                    } else if dist.exists() {
                                         if dist != ed.entries[i] {
                                             ed.mode = EditorMode::Insert;
                                             denied = true;
+                                            errors.push(WalkedError::Message(format!(
+                                                "'{}' already exists",
+                                                dist.display()
+                                            )));
                                         }
                                     } else {
-                                        // TODO: Handle Error
-                                        let _ = std::fs::rename(&ed.entries[i], &dist);
-                                        ed.entries[i] = dist;
+                                        if let Err(err) = std::fs::rename(&ed.entries[i], &dist) {
+                                            match err.kind() {
+                                                std::io::ErrorKind::NotFound => {
+                                                    errors.push(WalkedError::PathNotFound {
+                                                        path: ed.entries[i].clone(),
+                                                        path_kind: PathKind::Ambigious,
+                                                    })
+                                                }
+                                                std::io::ErrorKind::PermissionDenied => errors
+                                                    .push(WalkedError::PermissionDenied {
+                                                        path: ed.entries[i].clone(),
+                                                        path_kind: PathKind::Ambigious,
+                                                    }),
+                                                _ => errors.push(WalkedError::Message(format!(
+                                                    "Couldn't rename '{}' to '{}'",
+                                                    ed.entries[i].display(),
+                                                    dist.display()
+                                                ))),
+                                            }
+                                        } else {
+                                            ed.entries[i] = dist;
+                                        }
                                     }
                                 }
                             }
@@ -341,20 +584,53 @@ fn run<W: ratatui::prelude::Backend>(
                         } else if key_event.kind == KeyEventKind::Press {
                             if key_event.code == KeyCode::Backspace {
                                 if ed.cursor_offset > 0 {
-                                    ed.edit_buffer.remove(ed.cursor_offset as usize - 1);
+                                    let mut idx = ed.edit_buffer.len() - 1;
+                                    for (i, (len, _)) in ed.edit_buffer.char_indices().enumerate() {
+                                        if i >= ed.cursor_offset as usize {
+                                            break;
+                                        } else {
+                                            idx = len;
+                                        }
+                                    }
+                                    ed.edit_buffer.remove(idx);
                                     ed.cursor_offset -= 1;
                                 }
                             } else if let KeyCode::Char(c) = key_event.code {
-                                ed.edit_buffer.insert(ed.cursor_offset as usize, c);
+                                let mut idx = ed.edit_buffer.len();
+                                for (i, (len, _)) in ed.edit_buffer.char_indices().enumerate() {
+                                    if i == ed.cursor_offset as usize {
+                                        idx = len;
+                                        break;
+                                    }
+                                }
+                                ed.edit_buffer.insert(idx, c);
                                 ed.cursor_offset += 1;
                             }
                         }
                     }
                 }
             }
+        }
+
+        terminal.draw(|f| {
+            if let Some(cursor) = set_cursor {
+                f.set_cursor_position(cursor);
+            }
             let view = Block::new()
                 .padding(Padding::new(ed.left, 0, ed.top, ed.bottom))
-                .title(ed.working_directory.to_str().unwrap().into_centered_line())
+                .title(if errors.len() > 0 {
+                    {
+                        let mut res = String::new();
+                        for err in errors.iter() {
+                            res.push_str(&format!("{err} "));
+                        }
+                        res
+                    }
+                    .into_left_aligned_line()
+                    .red()
+                } else {
+                    ed.working_directory.to_str().unwrap().into_centered_line()
+                })
                 .title_bottom(ed.mode.to_string(&ed.config).into_centered_line());
 
             if let Some(i) = table_state.selected() {
@@ -460,11 +736,9 @@ fn run<W: ratatui::prelude::Backend>(
             }
         })?;
     }
-    Ok(())
 }
 
-#[allow(dead_code)]
-trait IntoLine<'a> {
+pub trait IntoLine<'a> {
     fn into_line(self) -> Line<'a>;
     fn into_centered_line(self) -> Line<'a>;
     fn into_right_aligned_line(self) -> Line<'a>;
