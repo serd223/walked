@@ -275,11 +275,7 @@ fn run<W: ratatui::prelude::Backend>(
         let mut set_cursor = None;
         if let Event::Key(key_event) = event {
             if errors.len() > 0 {
-                if key_event.code == KeyCode::Char(' ')
-                    || key_event.code == KeyCode::Esc
-                    || key_event.code == KeyCode::Backspace
-                    || key_event.code == KeyCode::Tab
-                {
+                if key_event.kind == KeyEventKind::Press {
                     errors.clear();
                 }
             } else {
