@@ -313,7 +313,7 @@ fn run<W: ratatui::prelude::Backend>(
                                 match err.kind() {
                                     std::io::ErrorKind::PermissionDenied => {
                                         errors.push(WalkedError::PermissionDenied {
-                                            path: new_file,
+                                            path: new_file.clone(),
                                             path_kind: PathKind::File,
                                         })
                                     }
@@ -322,15 +322,35 @@ fn run<W: ratatui::prelude::Backend>(
                                         new_file.display()
                                     ))),
                                 }
+                            } else {
+                                ed.read_working_dir();
+
+                                let mut index = None;
+                                for (i, entry) in ed.entries.iter().enumerate() {
+                                    if *entry == new_file {
+                                        table_state.select(Some(i));
+                                        index = Some(i);
+                                    }
+                                }
+
+                                if let Some(i) = index {
+                                    ed.mode = EditorMode::Insert;
+                                    ed.edit_buffer.clear();
+                                    ed.cursor_offset = 0;
+                                    set_cursor = Some((
+                                        ed.left + TABLE_HEADER_WIDTH + 1,
+                                        ed.top + 1 + i as u16,
+                                    ));
+                                    table_state.select_column(Some(1));
+                                }
                             }
-                            ed.read_working_dir();
                         } else if key_event == ed.config.new_directory {
                             let new_dir = new_path(ed.working_directory.join("NEWDIR"));
                             if let Err(err) = std::fs::create_dir(&new_dir) {
                                 match err.kind() {
                                     std::io::ErrorKind::PermissionDenied => {
                                         errors.push(WalkedError::PermissionDenied {
-                                            path: new_dir,
+                                            path: new_dir.clone(),
                                             path_kind: PathKind::Dir,
                                         })
                                     }
@@ -339,8 +359,28 @@ fn run<W: ratatui::prelude::Backend>(
                                         new_dir.display()
                                     ))),
                                 }
+                            } else {
+                                ed.read_working_dir();
+
+                                let mut index = None;
+                                for (i, entry) in ed.entries.iter().enumerate() {
+                                    if *entry == new_dir {
+                                        table_state.select(Some(i));
+                                        index = Some(i);
+                                    }
+                                }
+
+                                if let Some(i) = index {
+                                    ed.mode = EditorMode::Insert;
+                                    ed.edit_buffer.clear();
+                                    ed.cursor_offset = 0;
+                                    set_cursor = Some((
+                                        ed.left + TABLE_HEADER_WIDTH + 1,
+                                        ed.top + 1 + i as u16,
+                                    ));
+                                    table_state.select_column(Some(1));
+                                }
                             }
-                            ed.read_working_dir();
                         } else if key_event == ed.config.duplicate && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
                                 let entry_path = &ed.entries[current_entry];
@@ -684,6 +724,13 @@ fn run<W: ratatui::prelude::Backend>(
                             header.push(':');
                         }
                         header.push_str(entry_type);
+                    }
+                    if let Ok(metadata) = std::fs::metadata(&ed.entries[i]) {
+                        if ed.entries[i].is_file() {
+                            header.push_str(&format!(" {} ", metadata.len()));
+                        } else {
+                            header.push_str(" - ");
+                        }
                     }
                     let last = {
                         if let Some(l) = p.file_name() {
