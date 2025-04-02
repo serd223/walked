@@ -57,7 +57,7 @@ impl std::fmt::Display for WalkedError {
 
 impl std::error::Error for WalkedError {}
 
-const TABLE_HEADER_WIDTH: u16 = 8;
+const TABLE_HEADER_MIN_WIDTH: u16 = 8;
 const HIGHLIGHT_SYMBOL: &str = ">>";
 fn main() -> Result<(), std::io::Error> {
     crossterm::terminal::enable_raw_mode()?;
@@ -91,6 +91,7 @@ fn main() -> Result<(), std::io::Error> {
         edit_buffer: String::new(),
         cursor_offset: 0,
         current_entry_length: 0,
+        header_width: TABLE_HEADER_MIN_WIDTH,
     };
     let result = run(&mut terminal, &mut ed);
     crossterm::terminal::disable_raw_mode()?;
@@ -126,6 +127,7 @@ struct Editor {
     edit_buffer: String,
     cursor_offset: u16,
     current_entry_length: usize,
+    header_width: u16,
 }
 
 fn new_path<T: AsRef<std::path::Path>>(p: T) -> PathBuf {
@@ -244,6 +246,7 @@ impl Editor {
                     self.entries.push(p);
                 }
             }
+            self.header_width = TABLE_HEADER_MIN_WIDTH;
         }
     }
 }
@@ -338,7 +341,7 @@ fn run<W: ratatui::prelude::Backend>(
                                     ed.edit_buffer.clear();
                                     ed.cursor_offset = 0;
                                     set_cursor = Some((
-                                        ed.left + TABLE_HEADER_WIDTH + 1,
+                                        ed.left + ed.header_width + 1,
                                         ed.top + 1 + i as u16,
                                     ));
                                     table_state.select_column(Some(1));
@@ -375,7 +378,7 @@ fn run<W: ratatui::prelude::Backend>(
                                     ed.edit_buffer.clear();
                                     ed.cursor_offset = 0;
                                     set_cursor = Some((
-                                        ed.left + TABLE_HEADER_WIDTH + 1,
+                                        ed.left + ed.header_width + 1,
                                         ed.top + 1 + i as u16,
                                     ));
                                     table_state.select_column(Some(1));
@@ -550,7 +553,7 @@ fn run<W: ratatui::prelude::Backend>(
                                         }
                                     };
                                     set_cursor = Some((
-                                        ed.left + TABLE_HEADER_WIDTH + 1,
+                                        ed.left + ed.header_width + 1,
                                         ed.top + 1 + i as u16,
                                     ));
                                 }
@@ -683,7 +686,7 @@ fn run<W: ratatui::prelude::Backend>(
                 };
                 f.set_cursor_position((
                     ed.left
-                        + TABLE_HEADER_WIDTH
+                        + ed.header_width
                         + 1
                         + ed.cursor_offset
                         + if ed.mode == EditorMode::Normal {
@@ -727,11 +730,13 @@ fn run<W: ratatui::prelude::Backend>(
                     }
                     if let Ok(metadata) = std::fs::metadata(&ed.entries[i]) {
                         if ed.entries[i].is_file() {
-                            header.push_str(&format!(" {} ", metadata.len()));
+                            let size = bytesize::ByteSize::b(metadata.len());
+                            header.push_str(&format!(" {}", size));
                         } else {
                             header.push_str(" - ");
                         }
                     }
+                    ed.header_width = (header.chars().count() as u16).max(ed.header_width);
                     let last = {
                         if let Some(l) = p.file_name() {
                             l.to_os_string()
@@ -754,7 +759,7 @@ fn run<W: ratatui::prelude::Backend>(
                 EditorMode::Normal => {
                     f.render_stateful_widget(
                         Table::default()
-                            .widths([Constraint::Length(TABLE_HEADER_WIDTH), Constraint::Min(0)])
+                            .widths([Constraint::Length(ed.header_width), Constraint::Min(0)])
                             .rows(content)
                             .block(view)
                             .row_highlight_style(Style::new().reversed())
@@ -768,7 +773,7 @@ fn run<W: ratatui::prelude::Backend>(
                 EditorMode::Insert => {
                     f.render_stateful_widget(
                         Table::default()
-                            .widths([Constraint::Length(TABLE_HEADER_WIDTH), Constraint::Min(0)])
+                            .widths([Constraint::Length(ed.header_width), Constraint::Min(0)])
                             .rows(content)
                             .block(view)
                             .cell_highlight_style(Style::new().underlined()),
