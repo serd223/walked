@@ -1,8 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use serde::Serialize;
 use toml::Value;
 
-#[derive(Serialize)]
 pub struct Config {
     pub normal_mode_text: String,
     pub insert_mode_text: String,
