@@ -4,7 +4,16 @@ Simple terminal file manager
 ![walked_demonstration.gif](github/walked_demonstration.gif)
 
 # Features
-`walkEd` is pretty simple, it can help you navigate through the filesystem and it can duplicate, copy, paste, create, remove and rename files and directories.
+`walkEd` can:
+ - Navigate through the filesystem
+ - Duplicate, copy and paste files/directories,
+ - Create, remove and rename files/directories.
+
+Work in progress/planned features:
+ - Multiple file/directory selection
+ - Incremental search
+ - Fuzzy search
+ - Exhaustive support for symlinks
 
 # Build Instructions
 ```console
