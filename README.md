@@ -25,10 +25,10 @@ Now, you can use the `wd` command to use `walkEd` and change your working direct
 
 
 # Configuration
-`walkEd` uses a simple `TOML` file for configuration. You can supply the path to your configuration file as a command line argument to the program. (This would typically be done in your autoexec script mentioned above)
+`walkEd` uses a simple `TOML` file for configuration. You can optionally supply the path to your configuration file as a command line argument to the program. (This would typically be done in your autoexec script mentioned above)
 ## Example
 ```console
-  $ walked myconf.toml # uses myconf.toml
+  $ walked myconf.toml # uses default configuration if myconf.toml couldn't be found
 ```
 ## Writing your configuration file
 For a complete list of configurable options, see `Config` in [config.rs](https://github.com/serd223/walked/blob/master/src/config.rs).
