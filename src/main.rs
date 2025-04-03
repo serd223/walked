@@ -398,51 +398,66 @@ fn run<W: ratatui::prelude::Backend>(
                             }
                         } else if key_event == ed.config.duplicate && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
-                                let entry_path = &ed.entries[current_entry];
-                                let new_entry_path = new_path(entry_path);
-
-                                if entry_path.is_file() {
-                                    if let Err(err) = std::fs::copy(entry_path, &new_entry_path) {
-                                        match err.kind() {
-                                            std::io::ErrorKind::NotFound => {
-                                                errors.push(WalkedError::PathNotFound {
-                                                    path: entry_path.clone(),
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                errors.push(WalkedError::PermissionDenied {
-                                                    path: new_entry_path,
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            _ => errors.push(WalkedError::Message(format!(
-                                                "Couldn't copy file from '{}' to '{}'",
-                                                entry_path.display(),
-                                                new_entry_path.display()
-                                            ))),
-                                        }
-                                    }
-
-                                    ed.read_working_dir();
-                                } else if entry_path.is_dir() {
-                                    let new_dir = new_path(entry_path);
-                                    if let Err(err) = std::fs::create_dir(&new_dir) {
-                                        match err.kind() {
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                errors.push(WalkedError::PermissionDenied {
-                                                    path: new_dir,
-                                                    path_kind: PathKind::Dir,
-                                                })
-                                            }
-                                            _ => errors.push(WalkedError::Message(format!(
-                                                "Couldn't create directory '{}'",
-                                                new_dir.display()
-                                            ))),
-                                        }
+                                let selection_start =
+                                    if let Some(selection_start) = ed.selection_start {
+                                        ed.selection_start = None;
+                                        selection_start
                                     } else {
-                                        copy_recursively(entry_path, &new_dir, &mut errors);
+                                        current_entry
+                                    };
+                                let mut refresh = false;
+
+                                for i in current_entry.min(selection_start)
+                                    ..=current_entry.max(selection_start)
+                                {
+                                    let entry_path = &ed.entries[i];
+                                    let new_entry_path = new_path(entry_path);
+
+                                    if entry_path.is_file() {
+                                        if let Err(err) = std::fs::copy(entry_path, &new_entry_path)
+                                        {
+                                            match err.kind() {
+                                                std::io::ErrorKind::NotFound => {
+                                                    errors.push(WalkedError::PathNotFound {
+                                                        path: entry_path.clone(),
+                                                        path_kind: PathKind::File,
+                                                    })
+                                                }
+                                                std::io::ErrorKind::PermissionDenied => errors
+                                                    .push(WalkedError::PermissionDenied {
+                                                        path: new_entry_path,
+                                                        path_kind: PathKind::File,
+                                                    }),
+                                                _ => errors.push(WalkedError::Message(format!(
+                                                    "Couldn't copy file from '{}' to '{}'",
+                                                    entry_path.display(),
+                                                    new_entry_path.display()
+                                                ))),
+                                            }
+                                        }
+
+                                        refresh = true;
+                                    } else if entry_path.is_dir() {
+                                        let new_dir = new_path(entry_path);
+                                        if let Err(err) = std::fs::create_dir(&new_dir) {
+                                            match err.kind() {
+                                                std::io::ErrorKind::PermissionDenied => errors
+                                                    .push(WalkedError::PermissionDenied {
+                                                        path: new_dir,
+                                                        path_kind: PathKind::Dir,
+                                                    }),
+                                                _ => errors.push(WalkedError::Message(format!(
+                                                    "Couldn't create directory '{}'",
+                                                    new_dir.display()
+                                                ))),
+                                            }
+                                        } else {
+                                            copy_recursively(entry_path, &new_dir, &mut errors);
+                                        }
+                                        refresh = true;
                                     }
+                                }
+                                if refresh {
                                     ed.read_working_dir();
                                 }
                             }
@@ -514,57 +529,75 @@ fn run<W: ratatui::prelude::Backend>(
                             }
                         } else if key_event == ed.config.remove && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
-                                let entry = &ed.entries[current_entry];
-                                if entry.is_file() {
-                                    if let Err(err) = std::fs::remove_file(entry) {
-                                        match err.kind() {
-                                            std::io::ErrorKind::NotFound => {
-                                                errors.push(WalkedError::PathNotFound {
-                                                    path: entry.clone(),
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                errors.push(WalkedError::PermissionDenied {
-                                                    path: entry.clone(),
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            _ => errors.push(WalkedError::Message(format!(
-                                                "Couldn't remove file '{}'",
-                                                entry.display()
-                                            ))),
-                                        }
-                                    }
-                                    ed.read_working_dir();
-                                } else if entry.is_dir() {
-                                    if let Ok(dir) = std::fs::read_dir(entry) {
-                                        if let Err(err) = if dir.count() > 0 {
-                                            std::fs::remove_dir_all(entry)
-                                        } else {
-                                            std::fs::remove_dir(entry)
-                                        } {
+                                let selection_start =
+                                    if let Some(selection_start) = ed.selection_start {
+                                        ed.selection_start = None;
+                                        selection_start
+                                    } else {
+                                        current_entry
+                                    };
+                                let mut refresh = false;
+
+                                for i in current_entry.min(selection_start)
+                                    ..=current_entry.max(selection_start)
+                                {
+                                    let entry = &ed.entries[i];
+                                    if entry.is_file() {
+                                        if let Err(err) = std::fs::remove_file(entry) {
                                             match err.kind() {
                                                 std::io::ErrorKind::NotFound => {
                                                     errors.push(WalkedError::PathNotFound {
                                                         path: entry.clone(),
-                                                        path_kind: PathKind::Dir,
+                                                        path_kind: PathKind::File,
                                                     })
                                                 }
                                                 std::io::ErrorKind::PermissionDenied => errors
                                                     .push(WalkedError::PermissionDenied {
                                                         path: entry.clone(),
-                                                        path_kind: PathKind::Dir,
+                                                        path_kind: PathKind::File,
                                                     }),
                                                 _ => errors.push(WalkedError::Message(format!(
-                                                    "Couldn't remove directory '{}'",
+                                                    "Couldn't remove file '{}'",
                                                     entry.display()
                                                 ))),
                                             }
                                         }
+                                        refresh = true;
+                                    } else if entry.is_dir() {
+                                        if let Ok(dir) = std::fs::read_dir(entry) {
+                                            if let Err(err) = if dir.count() > 0 {
+                                                std::fs::remove_dir_all(entry)
+                                            } else {
+                                                std::fs::remove_dir(entry)
+                                            } {
+                                                match err.kind() {
+                                                    std::io::ErrorKind::NotFound => {
+                                                        errors.push(WalkedError::PathNotFound {
+                                                            path: entry.clone(),
+                                                            path_kind: PathKind::Dir,
+                                                        })
+                                                    }
+                                                    std::io::ErrorKind::PermissionDenied => errors
+                                                        .push(WalkedError::PermissionDenied {
+                                                            path: entry.clone(),
+                                                            path_kind: PathKind::Dir,
+                                                        }),
+                                                    _ => {
+                                                        errors.push(WalkedError::Message(format!(
+                                                            "Couldn't remove directory '{}'",
+                                                            entry.display()
+                                                        )))
+                                                    }
+                                                }
+                                            }
 
-                                        ed.read_working_dir();
+                                            refresh = true;
+                                        }
                                     }
+                                }
+
+                                if refresh {
+                                    ed.read_working_dir();
                                 }
                             }
                         } else if key_event == ed.config.insert_mode {
