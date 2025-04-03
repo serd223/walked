@@ -69,13 +69,9 @@ fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
         if let Ok(config_str) = std::fs::read_to_string(&args[1]) {
-            if let Ok(c) = toml::from_str(&config_str) {
-                config = c;
+            if let Ok(val) = toml::from_str(&config_str) {
+                config.from_toml(val);
             }
-        } else {
-            let config_str =
-                toml::to_string_pretty(&config).expect("Couldn't parse keybinds to config file.");
-            std::fs::write(&args[1], config_str)?;
         }
     }
 
@@ -92,6 +88,7 @@ fn main() -> Result<(), std::io::Error> {
         cursor_offset: 0,
         current_entry_length: 0,
         header_width: TABLE_HEADER_MIN_WIDTH,
+        selection_start: None,
     };
     let result = run(&mut terminal, &mut ed);
     crossterm::terminal::disable_raw_mode()?;
@@ -128,6 +125,7 @@ struct Editor {
     cursor_offset: u16,
     current_entry_length: usize,
     header_width: u16,
+    selection_start: Option<usize>,
 }
 
 fn new_path<T: AsRef<std::path::Path>>(p: T) -> PathBuf {
@@ -297,9 +295,23 @@ fn run<W: ratatui::prelude::Backend>(
                                 ed.refresh_cursor(&table_state);
                             }
                         } else if key_event == ed.config.up {
+                            ed.selection_start = None;
+                            table_state.scroll_up_by(1);
+                            ed.refresh_cursor(&table_state);
+                        } else if key_event == ed.config.select_up {
+                            if let None = ed.selection_start {
+                                ed.selection_start = table_state.selected();
+                            }
                             table_state.scroll_up_by(1);
                             ed.refresh_cursor(&table_state);
                         } else if key_event == ed.config.down {
+                            ed.selection_start = None;
+                            table_state.scroll_down_by(1);
+                            ed.refresh_cursor(&table_state);
+                        } else if key_event == ed.config.select_down {
+                            if let None = ed.selection_start {
+                                ed.selection_start = table_state.selected();
+                            }
                             table_state.scroll_down_by(1);
                             ed.refresh_cursor(&table_state);
                         } else if key_event == ed.config.left {

@@ -23,32 +23,74 @@ function wd() {
 
 Now, you can use the `wd` command to use `walkEd` and change your working directory with it.
 
-# Keybinds
 
-## Configuration
-By default, `walkEd` doesn't have a configuration file. The path to your desired configuration file can be supplied to the program directly as a command line arguement and if the file doesn't exist, `walkEd` will create the file in the desired path and fill its contents with the default configuration. It is recommended to first run `walkEd` with your desired configuration file path without creating the file, so later you can edit the generated default configuration easily.
-### Example
+# Configuration
+`walkEd` uses a simple `TOML` file for configuration. You can supply the path to your configuration file as a command line argument to the program. (This would typically be done in your autoexec script mentioned above)
+## Example
 ```console
-  $ walked myconf.toml
-  /walked/working/directory
-  $ vim myconf.toml
-  # edit your config file..
-  $ walked myconf.toml
-  # now walked will be using your desired configuration
+  $ walked myconf.toml # uses myconf.toml
+```
+## Writing your configuration file
+For a complete list of configurable options, see `Config` in [config.rs](https://github.com/serd223/walked/blob/master/src/config.rs).
+
+If an option isn't specified inside your configuration file, the default value will be used.
+
+Boolean and string options can be written like normal. For example:
+```toml
+# my_conf.toml
+normal_mode_text = "NORM"
+show_entry_number = false
+```
+Keybindings can be described with a very simple string format like this:
+```toml
+new_file = "C-N" # Control + N, typing a lowercase 'n' wouldn't work in this case
+quit = "cS-Esc" # Control + Shift + Escape
+# Both control and shift modifiers can be uppercase or lowercase, so this would be valid too:
+# quit = "Cs-Esc" # Control + Shift + Escape
+# or this:
+# quit = "cs-Esc" # Control + Shift + Escape
+# and so on
+
+# Space can be written as-is
+dir_walk = " "
+# It can be used with any modifier just like other characters
+dir_up = "S- " # Shift + Space
+
+# Please note that characters that have uppercase/lowercase variants may not work properly with the
+# shift modifier as the shift key is commonly used to reverse the capitalization of the typed letter
+
+# Here is the list of supported 'special' keys: (these are case sensitive, so you can't write "up" in your config)
+# Backspace
+# Enter
+# Left
+# Right
+# Up
+# Down
+# Home
+# End
+# PageUp
+# PageDown
+# Tab
+# BackTab
+# Delete
+# Insert
+# Esc
+# Function keys can be written normally (F6, F9, F11, etc)
+
 ```
 
 ## Default Keybindings
-`new_file`: Ctrl-n
+`new_file`: C-n
 
-`new_directory`: Ctrl-b
+`new_directory`: C-b
 
-`duplicate`: Ctrl-d
+`duplicate`: C-d
 
-`remove`: Ctrl-x
+`remove`: C-x
 
-`copy`: Ctrl-y
+`copy`: C-y
 
-`paste`: Ctrl-p
+`paste`: C-p
 
 `up`: k
 
@@ -60,7 +102,7 @@ By default, `walkEd` doesn't have a configuration file. The path to your desired
 
 `insert_mode`: i
 
-`normal_mode`: `Escape`
+`normal_mode`: `Esc`
 
 `quit`: q
 
