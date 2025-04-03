@@ -77,7 +77,7 @@ fn main() -> Result<(), std::io::Error> {
 
     let mut ed = Editor {
         config,
-        clipboard: PathBuf::new(),
+        clipboard: Vec::new(),
         mode: EditorMode::Normal,
         left: 2,
         top: 2,
@@ -114,7 +114,7 @@ impl EditorMode {
 
 struct Editor {
     config: Config,
-    clipboard: PathBuf,
+    clipboard: Vec<PathBuf>,
     mode: EditorMode,
     left: u16,
     top: u16,
@@ -448,54 +448,68 @@ fn run<W: ratatui::prelude::Backend>(
                             }
                         } else if key_event == ed.config.copy && ed.entries.len() > 0 {
                             if let Some(current_entry) = table_state.selected() {
-                                ed.clipboard = ed.entries[current_entry].clone();
-                            }
-                        } else if key_event == ed.config.paste {
-                            let entry_path = &ed.clipboard;
-                            let new_entry_path = new_path(
-                                ed.working_directory.join(entry_path.file_name().unwrap()),
-                            );
-
-                            if entry_path.is_file() {
-                                if let Err(err) = std::fs::copy(entry_path, &new_entry_path) {
-                                    match err.kind() {
-                                        std::io::ErrorKind::NotFound => {
-                                            errors.push(WalkedError::PathNotFound {
-                                                path: entry_path.clone(),
-                                                path_kind: PathKind::File,
-                                            })
-                                        }
-                                        std::io::ErrorKind::PermissionDenied => {
-                                            errors.push(WalkedError::PermissionDenied {
-                                                path: new_entry_path,
-                                                path_kind: PathKind::File,
-                                            })
-                                        }
-                                        _ => errors.push(WalkedError::Message(format!(
-                                            "Couldn't copy file from '{}' to '{}'",
-                                            entry_path.display(),
-                                            new_entry_path.display()
-                                        ))),
-                                    }
-                                }
-                                ed.read_working_dir();
-                            } else if entry_path.is_dir() {
-                                if let Err(err) = std::fs::create_dir(&new_entry_path) {
-                                    match err.kind() {
-                                        std::io::ErrorKind::PermissionDenied => {
-                                            errors.push(WalkedError::PermissionDenied {
-                                                path: new_entry_path,
-                                                path_kind: PathKind::Dir,
-                                            })
-                                        }
-                                        _ => errors.push(WalkedError::Message(format!(
-                                            "Couldn't create directory '{}'",
-                                            new_entry_path.display()
-                                        ))),
+                                ed.clipboard.clear();
+                                if let Some(selection_start) = ed.selection_start {
+                                    for i in current_entry.min(selection_start)
+                                        ..=current_entry.max(selection_start)
+                                    {
+                                        ed.clipboard.push(ed.entries[i].clone());
                                     }
                                 } else {
-                                    copy_recursively(entry_path, &new_entry_path, &mut errors);
+                                    ed.clipboard.push(ed.entries[current_entry].clone());
                                 }
+                            }
+                        } else if key_event == ed.config.paste {
+                            let mut refresh = false;
+                            for entry_path in ed.clipboard.iter() {
+                                let new_entry_path = new_path(
+                                    ed.working_directory.join(entry_path.file_name().unwrap()),
+                                );
+
+                                if entry_path.is_file() {
+                                    if let Err(err) = std::fs::copy(entry_path, &new_entry_path) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::NotFound => {
+                                                errors.push(WalkedError::PathNotFound {
+                                                    path: entry_path.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                errors.push(WalkedError::PermissionDenied {
+                                                    path: new_entry_path,
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            _ => errors.push(WalkedError::Message(format!(
+                                                "Couldn't copy file from '{}' to '{}'",
+                                                entry_path.display(),
+                                                new_entry_path.display()
+                                            ))),
+                                        }
+                                    }
+                                    refresh = true;
+                                } else if entry_path.is_dir() {
+                                    if let Err(err) = std::fs::create_dir(&new_entry_path) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                errors.push(WalkedError::PermissionDenied {
+                                                    path: new_entry_path,
+                                                    path_kind: PathKind::Dir,
+                                                })
+                                            }
+                                            _ => errors.push(WalkedError::Message(format!(
+                                                "Couldn't create directory '{}'",
+                                                new_entry_path.display()
+                                            ))),
+                                        }
+                                    } else {
+                                        copy_recursively(entry_path, &new_entry_path, &mut errors);
+                                    }
+                                    refresh = true;
+                                }
+                            }
+                            if refresh {
                                 ed.read_working_dir();
                             }
                         } else if key_event == ed.config.remove && ed.entries.len() > 0 {
@@ -763,7 +777,32 @@ fn run<W: ratatui::prelude::Backend>(
                             }
                         }
                     }
-                    Row::new([header, last.to_str().unwrap().to_string()])
+                    let is_in_selection = {
+                        if let Some(selection_start) = ed.selection_start {
+                            if let Some(cur) = table_state.selected() {
+                                if cur > selection_start {
+                                    i < cur && i >= selection_start
+                                } else if cur < selection_start {
+                                    i > cur && i <= selection_start
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    };
+                    let line = last.to_str().unwrap().to_string();
+                    Row::new([
+                        header.into_line(),
+                        if is_in_selection {
+                            line.reversed().into_line()
+                        } else {
+                            line.into_line()
+                        },
+                    ])
                 })
                 .collect::<Vec<Row>>();
 
