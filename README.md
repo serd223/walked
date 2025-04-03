@@ -8,9 +8,9 @@ Simple terminal file manager
  - Navigate through the filesystem
  - Duplicate, copy and paste files/directories,
  - Create, remove and rename files/directories.
+ - Select multiple entries and do the operations mentioned above in bulk (except renaming, for now)
 
 Work in progress/planned features:
- - Multiple file/directory selection
  - Incremental search
  - Fuzzy search
  - Exhaustive support for symlinks
@@ -103,7 +103,11 @@ dir_up = "S- " # Shift + Space
 
 `up`: k
 
+`select_up`: K
+
 `down`: j
+
+`select_down`: J
 
 `left`: h
 
