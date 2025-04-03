@@ -731,32 +731,6 @@ fn run<W: ratatui::prelude::Backend>(
                 })
                 .title_bottom(ed.mode.to_string(&ed.config).into_centered_line());
 
-            if let Some(i) = table_state.selected() {
-                let row_offset = {
-                    if i < table_state.offset() {
-                        0
-                    } else if ed.entries.len() > 0 {
-                        (i - table_state.offset()).min(
-                            (ed.entries.len() - 1).min(view.inner(f.area()).height as usize - 1),
-                        ) as u16
-                    } else {
-                        0
-                    }
-                };
-                f.set_cursor_position((
-                    ed.left
-                        + ed.header_width
-                        + 1
-                        + ed.cursor_offset
-                        + if ed.mode == EditorMode::Normal {
-                            HIGHLIGHT_SYMBOL.chars().count() as u16
-                        } else {
-                            0
-                        },
-                    ed.top + 1 + row_offset,
-                ));
-            }
-
             let content = ed
                 .entries
                 .iter()
@@ -838,6 +812,32 @@ fn run<W: ratatui::prelude::Backend>(
                     ])
                 })
                 .collect::<Vec<Row>>();
+
+            if let Some(i) = table_state.selected() {
+                let row_offset = {
+                    if i < table_state.offset() {
+                        0
+                    } else if ed.entries.len() > 0 {
+                        (i - table_state.offset()).min(
+                            (ed.entries.len() - 1).min(view.inner(f.area()).height as usize - 1),
+                        ) as u16
+                    } else {
+                        0
+                    }
+                };
+                f.set_cursor_position((
+                    ed.left
+                        + ed.header_width
+                        + 1
+                        + ed.cursor_offset
+                        + if ed.mode == EditorMode::Normal {
+                            HIGHLIGHT_SYMBOL.chars().count() as u16
+                        } else {
+                            0
+                        },
+                    ed.top + 1 + row_offset,
+                ));
+            }
 
             match ed.mode {
                 EditorMode::Normal => {
