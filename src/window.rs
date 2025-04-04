@@ -464,7 +464,7 @@ impl Panel {
                                             ))),
                                         }
                                     } else {
-                                        self.entries[i] = dist;
+                                        self.read_working_dir();
                                         result.should_refresh = true;
                                     }
                                 }
