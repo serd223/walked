@@ -11,6 +11,13 @@ pub struct Window {
     pub panel_focus_i: usize,
     pub panel_focus_j: usize,
     pub clipboard: Vec<PathBuf>,
+    pub config: Config,
+}
+
+impl Window {
+    pub fn panel(&mut self) -> &Panel {
+        &self.panels[self.panel_focus_i][self.panel_focus_j]
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -22,7 +29,6 @@ pub enum PanelMode {
 pub struct Panel {
     pub errors: Vec<WalkedError>,
     pub table_state: TableState,
-    pub config: Config,
     pub mode: PanelMode,
     pub left: u16,
     pub top: u16,
@@ -37,15 +43,15 @@ pub struct Panel {
 }
 
 pub struct PanelFrameData {
+    pub should_refresh: bool,
     pub quit: bool,
 }
 
 impl Panel {
-    pub fn new(config: Config, current_dir: PathBuf) -> Self {
+    pub fn new(current_dir: PathBuf) -> Self {
         let mut panel = Self {
             errors: Vec::new(),
             table_state: TableState::default(),
-            config,
             mode: PanelMode::Normal,
             left: 2,
             top: 2,
@@ -69,8 +75,12 @@ impl Panel {
         &mut self,
         key_event: KeyEvent,
         clipboard: &mut Vec<PathBuf>,
+        config: &Config,
     ) -> PanelFrameData {
-        let mut result = PanelFrameData { quit: false };
+        let mut result = PanelFrameData {
+            quit: false,
+            should_refresh: false,
+        };
 
         if self.errors.len() > 0 {
             if key_event.kind == KeyEventKind::Press {
@@ -79,47 +89,47 @@ impl Panel {
         } else {
             match self.mode {
                 PanelMode::Normal => {
-                    if key_event == self.config.dir_walk {
+                    if key_event == config.dir_walk {
                         if let Some(i) = self.table_state.selected() {
                             if self.walk(i) {
                                 self.table_state.select_first();
                                 self.refresh_cursor();
                             }
                         }
-                    } else if key_event == self.config.dir_up {
+                    } else if key_event == config.dir_up {
                         if self.parent() {
                             self.table_state.select_first();
                             self.refresh_cursor();
                         }
-                    } else if key_event == self.config.up {
+                    } else if key_event == config.up {
                         self.selection_start = None;
                         self.table_state.scroll_up_by(1);
                         self.refresh_cursor();
-                    } else if key_event == self.config.select_up {
+                    } else if key_event == config.select_up {
                         if let None = self.selection_start {
                             self.selection_start = self.table_state.selected();
                         }
                         self.table_state.scroll_up_by(1);
                         self.refresh_cursor();
-                    } else if key_event == self.config.down {
+                    } else if key_event == config.down {
                         self.selection_start = None;
                         self.table_state.scroll_down_by(1);
                         self.refresh_cursor();
-                    } else if key_event == self.config.select_down {
+                    } else if key_event == config.select_down {
                         if let None = self.selection_start {
                             self.selection_start = self.table_state.selected();
                         }
                         self.table_state.scroll_down_by(1);
                         self.refresh_cursor();
-                    } else if key_event == self.config.left {
+                    } else if key_event == config.left {
                         if self.cursor_offset > 0 {
                             self.cursor_offset -= 1;
                         }
-                    } else if key_event == self.config.right {
+                    } else if key_event == config.right {
                         if self.cursor_offset < self.current_entry_length as u16 {
                             self.cursor_offset += 1;
                         }
-                    } else if key_event == self.config.new_file {
+                    } else if key_event == config.new_file {
                         let new_file = new_path(self.working_directory.join("NEWFILE"));
                         if let Err(err) = std::fs::File::create(&new_file) {
                             match err.kind() {
@@ -136,6 +146,7 @@ impl Panel {
                             }
                         } else {
                             self.read_working_dir();
+                            result.should_refresh = true;
 
                             for (i, entry) in self.entries.iter().enumerate() {
                                 if *entry == new_file {
@@ -147,7 +158,7 @@ impl Panel {
                                 }
                             }
                         }
-                    } else if key_event == self.config.new_directory {
+                    } else if key_event == config.new_directory {
                         let new_dir = new_path(self.working_directory.join("NEWDIR"));
                         if let Err(err) = std::fs::create_dir(&new_dir) {
                             match err.kind() {
@@ -164,6 +175,7 @@ impl Panel {
                             }
                         } else {
                             self.read_working_dir();
+                            result.should_refresh = true;
 
                             for (i, entry) in self.entries.iter().enumerate() {
                                 if *entry == new_dir {
@@ -175,7 +187,7 @@ impl Panel {
                                 }
                             }
                         }
-                    } else if key_event == self.config.duplicate && self.entries.len() > 0 {
+                    } else if key_event == config.duplicate && self.entries.len() > 0 {
                         if let Some(current_entry) = self.table_state.selected() {
                             let selection_start =
                                 if let Some(selection_start) = self.selection_start {
@@ -239,9 +251,10 @@ impl Panel {
                             }
                             if refresh {
                                 self.read_working_dir();
+                                result.should_refresh = true;
                             }
                         }
-                    } else if key_event == self.config.copy && self.entries.len() > 0 {
+                    } else if key_event == config.copy && self.entries.len() > 0 {
                         if let Some(current_entry) = self.table_state.selected() {
                             clipboard.clear();
                             if let Some(selection_start) = self.selection_start {
@@ -254,7 +267,7 @@ impl Panel {
                                 clipboard.push(self.entries[current_entry].clone());
                             }
                         }
-                    } else if key_event == self.config.paste {
+                    } else if key_event == config.paste {
                         let mut refresh = false;
                         for entry_path in clipboard.iter() {
                             let new_entry_path = new_path(
@@ -306,8 +319,9 @@ impl Panel {
                         }
                         if refresh {
                             self.read_working_dir();
+                            result.should_refresh = true;
                         }
-                    } else if key_event == self.config.remove && self.entries.len() > 0 {
+                    } else if key_event == config.remove && self.entries.len() > 0 {
                         if let Some(current_entry) = self.table_state.selected() {
                             let selection_start =
                                 if let Some(selection_start) = self.selection_start {
@@ -380,9 +394,10 @@ impl Panel {
 
                             if refresh {
                                 self.read_working_dir();
+                                result.should_refresh = true;
                             }
                         }
-                    } else if key_event == self.config.insert_mode {
+                    } else if key_event == config.insert_mode {
                         if self.entries.len() > 0 {
                             self.mode = PanelMode::Insert;
                             if let Some(i) = self.table_state.selected() {
@@ -396,14 +411,14 @@ impl Panel {
                             }
                             self.table_state.select_column(Some(1));
                         }
-                    } else if key_event == self.config.quit {
+                    } else if key_event == config.quit {
                         result.quit = true;
                         return result;
                     }
                     self.refresh_cursor();
                 }
                 PanelMode::Insert => {
-                    if key_event == self.config.normal_mode
+                    if key_event == config.normal_mode
                         || (key_event.code == KeyCode::Enter
                             && key_event.kind == KeyEventKind::Press)
                     {
@@ -450,6 +465,7 @@ impl Panel {
                                         }
                                     } else {
                                         self.entries[i] = dist;
+                                        result.should_refresh = true;
                                     }
                                 }
                             }
