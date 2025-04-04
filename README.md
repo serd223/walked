@@ -9,6 +9,7 @@ Simple terminal file manager
  - Duplicate, copy and paste files/directories,
  - Create, remove and rename files/directories.
  - Select multiple entries and do the operations mentioned above in bulk (except renaming, for now)
+ - Split the view into multiple panes for editing multiple directories at the same time
 
 Work in progress/planned features:
  - Incremental search
@@ -105,13 +106,29 @@ dir_up = "S- " # Shift + Space
 
 `select_up`: K
 
+`pane_up`: C-k
+
+`split_pane_up`: C-K
+
 `down`: j
 
 `select_down`: J
 
+`pane_down`: C-j
+
+`split_pane_down`: C-J
+
 `left`: h
 
+`pane_left`: C-h
+
+`split_pane_left`: C-H
+
 `right`: l
+
+`pane_right`: C-l
+
+`split_pane_right`: C-L
 
 `insert_mode`: i
 
