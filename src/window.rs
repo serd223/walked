@@ -1,10 +1,11 @@
+use crate::{config::Config, PathKind, WalkedError};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use ratatui::widgets::TableState;
 use std::{path::PathBuf, str::FromStr};
 
 pub const TABLE_HEADER_MIN_WIDTH: u16 = 8;
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use ratatui::widgets::TableState;
-
-use crate::{config::Config, PathKind, WalkedError};
+pub const NEW_DIRECTORY_TEXT: &'static str = ".#NEWDIR";
+pub const NEW_FILE_TEXT: &'static str = ".#NEWFILE";
 
 pub struct Window {
     pub panels: Vec<Vec<Panel>>,
@@ -130,7 +131,7 @@ impl Panel {
                             self.cursor_offset += 1;
                         }
                     } else if key_event == config.new_file {
-                        let new_file = new_path(self.working_directory.join("NEWFILE"));
+                        let new_file = new_path(self.working_directory.join(NEW_FILE_TEXT));
                         if let Err(err) = std::fs::File::create(&new_file) {
                             match err.kind() {
                                 std::io::ErrorKind::PermissionDenied => {
@@ -159,7 +160,7 @@ impl Panel {
                             }
                         }
                     } else if key_event == config.new_directory {
-                        let new_dir = new_path(self.working_directory.join("NEWDIR"));
+                        let new_dir = new_path(self.working_directory.join(NEW_DIRECTORY_TEXT));
                         if let Err(err) = std::fs::create_dir(&new_dir) {
                             match err.kind() {
                                 std::io::ErrorKind::PermissionDenied => {
