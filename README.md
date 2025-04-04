@@ -134,6 +134,8 @@ dir_up = "S- " # Shift + Space
 
 `normal_mode`: `Esc`
 
+`close_active_pane`: C-q
+
 `quit`: q
 
 `dir_walk`: `Space`
