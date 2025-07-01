@@ -1,11 +1,37 @@
-use crate::{config::Config, PathKind, WalkedError};
+use crate::{PathKind, WalkedError, config::Config};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::widgets::TableState;
 use std::{path::PathBuf, str::FromStr};
 
 pub const TABLE_HEADER_MIN_WIDTH: u16 = 8;
-pub const NEW_DIRECTORY_TEXT: &'static str = ".#NEWDIR";
-pub const NEW_FILE_TEXT: &'static str = ".#NEWFILE";
+// pub const NEW_DIRECTORY_TEXT: &'static str = ".#NEWDIR";
+// pub const NEW_FILE_TEXT: &'static str = ".#NEWFILE";
+
+#[derive(Clone)]
+pub enum CommandKind {
+    NewFile,
+    NewDirectory,
+    #[allow(dead_code)]
+    FindEntry, // TODO
+    #[allow(dead_code)]
+    Custom(String), // NOTE: For future if we need plugins or such
+}
+
+impl ToString for CommandKind {
+    fn to_string(&self) -> String {
+        match self {
+            CommandKind::NewFile => "new-file".to_string(),
+            CommandKind::NewDirectory => "new-directory".to_string(),
+            CommandKind::FindEntry => "find-entry".to_string(),
+            CommandKind::Custom(s) => s.clone(),
+        }
+    }
+}
+
+pub struct Command {
+    pub kind: CommandKind,
+    pub arg: String,
+}
 
 pub struct Window {
     pub panels: Vec<Vec<Panel>>,
@@ -99,6 +125,7 @@ impl Window {
 #[derive(PartialEq, Eq)]
 pub enum PanelMode {
     Normal,
+    Prompt,
     Insert,
 }
 
@@ -116,6 +143,8 @@ pub struct Panel {
     pub current_entry_length: usize,
     pub header_width: u16,
     pub selection_start: Option<usize>,
+    pub queue: Vec<Command>,
+    pub command_prompt: Option<CommandKind>,
 }
 
 pub struct PanelFrameData {
@@ -139,6 +168,8 @@ impl Panel {
             current_entry_length: 0,
             header_width: TABLE_HEADER_MIN_WIDTH,
             selection_start: None,
+            queue: Vec::new(),
+            command_prompt: None,
         };
         panel.read_working_dir();
         panel.table_state.select_first();
@@ -146,8 +177,82 @@ impl Panel {
         panel
     }
 
+    pub fn prompt(&mut self, cmd: CommandKind) {
+        self.mode = PanelMode::Prompt;
+        self.command_prompt = Some(cmd);
+        self.edit_buffer.clear();
+    }
+
+    pub fn process_command_queue(&mut self, result: &mut PanelFrameData) {
+        if self.queue.len() > 0 {
+            let queue = self.queue.drain(..).collect::<Vec<_>>();
+            for cmd in queue {
+                match cmd.kind {
+                    CommandKind::NewFile => {
+                        let new_file = new_path(self.working_directory.join(cmd.arg));
+                        if let Err(err) = std::fs::File::create(&new_file) {
+                            match err.kind() {
+                                std::io::ErrorKind::PermissionDenied => {
+                                    self.errors.push(WalkedError::PermissionDenied {
+                                        path: new_file.clone(),
+                                        path_kind: PathKind::File,
+                                    })
+                                }
+                                _ => self.errors.push(WalkedError::Message(format!(
+                                    "Couldn't create file '{}'",
+                                    new_file.display()
+                                ))),
+                            }
+                        } else {
+                            self.read_working_dir();
+                            result.should_refresh = true;
+
+                            for (i, entry) in self.entries.iter().enumerate() {
+                                if *entry == new_file {
+                                    self.table_state.select(Some(i));
+                                    self.cursor_offset = 0;
+                                    self.table_state.select_column(Some(1));
+                                }
+                            }
+                        }
+                    }
+                    CommandKind::NewDirectory => {
+                        let new_dir = new_path(self.working_directory.join(cmd.arg));
+                        if let Err(err) = std::fs::create_dir(&new_dir) {
+                            match err.kind() {
+                                std::io::ErrorKind::PermissionDenied => {
+                                    self.errors.push(WalkedError::PermissionDenied {
+                                        path: new_dir.clone(),
+                                        path_kind: PathKind::Dir,
+                                    })
+                                }
+                                _ => self.errors.push(WalkedError::Message(format!(
+                                    "Couldn't create directory '{}'",
+                                    new_dir.display()
+                                ))),
+                            }
+                        } else {
+                            self.read_working_dir();
+                            result.should_refresh = true;
+
+                            for (i, entry) in self.entries.iter().enumerate() {
+                                if *entry == new_dir {
+                                    self.table_state.select(Some(i));
+                                    self.cursor_offset = 0;
+                                    self.table_state.select_column(Some(1));
+                                }
+                            }
+                        }
+                    }
+                    CommandKind::FindEntry => todo!(),
+                    CommandKind::Custom(_) => todo!(),
+                }
+            }
+        }
+    }
+
     /// Returns false if quit was pressed
-    pub fn process_key_event(
+    pub fn update(
         &mut self,
         key_event: KeyEvent,
         clipboard: &mut Vec<PathBuf>,
@@ -164,6 +269,24 @@ impl Panel {
             }
         } else {
             match self.mode {
+                PanelMode::Prompt => {
+                    if key_event == config.quit {
+                        result.quit = true;
+                        return result;
+                    } else if key_event.code == KeyCode::Enter {
+                        self.queue.push(Command {
+                            kind: self.command_prompt.clone().unwrap(),
+                            arg: self.edit_buffer.clone(),
+                        });
+                        self.edit_buffer.clear();
+                        self.command_prompt = None;
+                        self.mode = PanelMode::Normal;
+                    } else if key_event.code == KeyCode::Backspace {
+                        self.edit_buffer.pop();
+                    } else if let KeyCode::Char(c) = key_event.code {
+                        self.edit_buffer.push(c);
+                    }
+                }
                 PanelMode::Normal => {
                     if key_event == config.dir_walk {
                         if let Some(i) = self.table_state.selected() {
@@ -206,63 +329,9 @@ impl Panel {
                             self.cursor_offset += 1;
                         }
                     } else if key_event == config.new_file {
-                        let new_file = new_path(self.working_directory.join(NEW_FILE_TEXT));
-                        if let Err(err) = std::fs::File::create(&new_file) {
-                            match err.kind() {
-                                std::io::ErrorKind::PermissionDenied => {
-                                    self.errors.push(WalkedError::PermissionDenied {
-                                        path: new_file.clone(),
-                                        path_kind: PathKind::File,
-                                    })
-                                }
-                                _ => self.errors.push(WalkedError::Message(format!(
-                                    "Couldn't create file '{}'",
-                                    new_file.display()
-                                ))),
-                            }
-                        } else {
-                            self.read_working_dir();
-                            result.should_refresh = true;
-
-                            for (i, entry) in self.entries.iter().enumerate() {
-                                if *entry == new_file {
-                                    self.table_state.select(Some(i));
-                                    self.mode = PanelMode::Insert;
-                                    self.edit_buffer.clear();
-                                    self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(1));
-                                }
-                            }
-                        }
+                        self.prompt(CommandKind::NewFile);
                     } else if key_event == config.new_directory {
-                        let new_dir = new_path(self.working_directory.join(NEW_DIRECTORY_TEXT));
-                        if let Err(err) = std::fs::create_dir(&new_dir) {
-                            match err.kind() {
-                                std::io::ErrorKind::PermissionDenied => {
-                                    self.errors.push(WalkedError::PermissionDenied {
-                                        path: new_dir.clone(),
-                                        path_kind: PathKind::Dir,
-                                    })
-                                }
-                                _ => self.errors.push(WalkedError::Message(format!(
-                                    "Couldn't create directory '{}'",
-                                    new_dir.display()
-                                ))),
-                            }
-                        } else {
-                            self.read_working_dir();
-                            result.should_refresh = true;
-
-                            for (i, entry) in self.entries.iter().enumerate() {
-                                if *entry == new_dir {
-                                    self.table_state.select(Some(i));
-                                    self.mode = PanelMode::Insert;
-                                    self.edit_buffer.clear();
-                                    self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(1));
-                                }
-                            }
-                        }
+                        self.prompt(CommandKind::NewDirectory);
                     } else if key_event == config.duplicate && self.entries.len() > 0 {
                         if let Some(current_entry) = self.table_state.selected() {
                             let selection_start =
@@ -628,6 +697,8 @@ impl Panel {
                     self.entries.push(p);
                 }
             }
+            // TODO: `ls` is not case-sensitive while the `Sort` implementation for `PathBuf` IS case-sensitive
+            self.entries.sort_unstable();
             self.header_width = TABLE_HEADER_MIN_WIDTH;
         }
     }

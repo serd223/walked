@@ -6,12 +6,12 @@ use std::{io::BufWriter, path::PathBuf};
 use config::Config;
 use crossterm::event::{self, Event};
 use ratatui::{
+    Terminal,
     layout::Constraint,
     prelude::CrosstermBackend,
     style::{Style, Stylize},
     text::Line,
     widgets::{Block, Padding, Row, Table},
-    Terminal,
 };
 use window::{Panel, PanelMode, Window};
 
@@ -92,6 +92,7 @@ impl PanelMode {
     fn to_string(&self, config: &Config) -> String {
         match *self {
             PanelMode::Normal => config.normal_mode_text.clone(),
+            PanelMode::Prompt => config.normal_mode_text.clone(),
             PanelMode::Insert => config.insert_mode_text.clone(),
         }
     }
@@ -145,8 +146,14 @@ fn run<W: ratatui::prelude::Backend>(
             } else if key_event == window.config.close_active_pane {
                 window.close_active();
             } else {
-                let res = window.panels[window.panel_focus_i][window.panel_focus_j]
-                    .process_key_event(key_event, &mut window.clipboard, &window.config);
+                let mut res = window.panels[window.panel_focus_i][window.panel_focus_j].update(
+                    key_event,
+                    &mut window.clipboard,
+                    &window.config,
+                );
+
+                window.panels[window.panel_focus_i][window.panel_focus_j]
+                    .process_command_queue(&mut res);
                 if res.quit {
                     return Ok(window.panel().working_directory.clone());
                 }
@@ -311,6 +318,34 @@ fn run<W: ratatui::prelude::Backend>(
                     }
 
                     match panel.mode {
+                        PanelMode::Prompt => {
+                            let mut top_area = area;
+                            top_area.height -= 2;
+                            let mut bottom_area = top_area;
+                            bottom_area.y += top_area.height;
+                            bottom_area.height = 2;
+                            f.render_stateful_widget(
+                                Table::default()
+                                    .widths([
+                                        Constraint::Length(panel.header_width),
+                                        Constraint::Min(0),
+                                    ])
+                                    .rows(content)
+                                    .block(view)
+                                    .row_highlight_style(Style::new().reversed())
+                                    .highlight_symbol(HIGHLIGHT_SYMBOL),
+                                top_area,
+                                &mut panel.table_state,
+                            );
+                            if let Some(cmd) = &panel.command_prompt {
+                                f.render_widget(
+                                    format!("({}) >{}_", cmd.to_string(), panel.edit_buffer),
+                                    bottom_area,
+                                );
+                            } else {
+                                f.render_widget(format!(">{}_", panel.edit_buffer), bottom_area);
+                            }
+                        }
                         PanelMode::Normal => {
                             f.render_stateful_widget(
                                 Table::default()
@@ -321,8 +356,6 @@ fn run<W: ratatui::prelude::Backend>(
                                     .rows(content)
                                     .block(view)
                                     .row_highlight_style(Style::new().reversed())
-                                    .column_highlight_style(Style::new().red())
-                                    .cell_highlight_style(Style::new().blue())
                                     .highlight_symbol(HIGHLIGHT_SYMBOL),
                                 area,
                                 &mut panel.table_state,
