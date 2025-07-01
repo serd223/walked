@@ -16,6 +16,81 @@ pub struct Window {
 }
 
 impl Window {
+    pub fn pane_up(&mut self) {
+        if self.panel_focus_i > 0 {
+            self.panel_focus_i -= 1;
+            self.panel_focus_j = self
+                .panel_focus_j
+                .min(self.panels[self.panel_focus_i].len() - 1);
+        }
+    }
+
+    pub fn pane_down(&mut self) {
+        if self.panel_focus_i + 1 < self.panels.len() {
+            self.panel_focus_i += 1;
+            self.panel_focus_j = self
+                .panel_focus_j
+                .min(self.panels[self.panel_focus_i].len() - 1);
+        }
+    }
+
+    pub fn pane_left(&mut self) {
+        if self.panel_focus_j > 0 {
+            self.panel_focus_j -= 1;
+        }
+    }
+
+    pub fn pane_right(&mut self) {
+        if self.panel_focus_j + 1 < self.panels[self.panel_focus_i].len() {
+            self.panel_focus_j += 1;
+        }
+    }
+
+    pub fn split_up(&mut self) {
+        let wd = self.panel().working_directory.clone();
+        self.panels.insert(self.panel_focus_i, vec![Panel::new(wd)]);
+        self.panel_focus_j = 0;
+    }
+
+    pub fn split_down(&mut self) {
+        let wd = self.panel().working_directory.clone();
+        self.panels
+            .insert(self.panel_focus_i + 1, vec![Panel::new(wd)]);
+        self.panel_focus_i += 1;
+        self.panel_focus_j = 0;
+    }
+
+    pub fn split_left(&mut self) {
+        let wd = self.panel().working_directory.clone();
+        self.panels[self.panel_focus_i].insert(self.panel_focus_j, Panel::new(wd));
+    }
+
+    pub fn split_right(&mut self) {
+        let wd = self.panel().working_directory.clone();
+        self.panels[self.panel_focus_i].insert(self.panel_focus_j + 1, Panel::new(wd));
+        self.panel_focus_j += 1;
+    }
+
+    pub fn close_active(&mut self) {
+        let row_count = self.panels.len();
+        let row_len = self.panels[self.panel_focus_i].len();
+        if row_len <= 1 {
+            if row_count > 1 {
+                // remove row
+                self.panels.remove(self.panel_focus_i);
+                if self.panel_focus_i > 0 {
+                    self.panel_focus_i -= 1;
+                }
+            }
+        } else {
+            // remove pane
+            self.panels[self.panel_focus_i].remove(self.panel_focus_j);
+            if self.panel_focus_j > 0 {
+                self.panel_focus_j -= 1;
+            }
+        }
+    }
+
     pub fn panel(&mut self) -> &Panel {
         &self.panels[self.panel_focus_i][self.panel_focus_j]
     }

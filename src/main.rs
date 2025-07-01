@@ -127,66 +127,23 @@ fn run<W: ratatui::prelude::Backend>(
 
         if let Event::Key(key_event) = event {
             if key_event == window.config.pane_up {
-                if window.panel_focus_i > 0 {
-                    window.panel_focus_i -= 1;
-                    window.panel_focus_j = window
-                        .panel_focus_j
-                        .min(window.panels[window.panel_focus_i].len() - 1);
-                }
+                window.pane_up();
             } else if key_event == window.config.pane_down {
-                if window.panel_focus_i + 1 < window.panels.len() {
-                    window.panel_focus_i += 1;
-                    window.panel_focus_j = window
-                        .panel_focus_j
-                        .min(window.panels[window.panel_focus_i].len() - 1);
-                }
+                window.pane_down();
             } else if key_event == window.config.pane_left {
-                if window.panel_focus_j > 0 {
-                    window.panel_focus_j -= 1;
-                }
+                window.pane_left();
             } else if key_event == window.config.pane_right {
-                if window.panel_focus_j + 1 < window.panels[window.panel_focus_i].len() {
-                    window.panel_focus_j += 1;
-                }
+                window.pane_right();
             } else if key_event == window.config.split_pane_up {
-                let wd = window.panel().working_directory.clone();
-                window
-                    .panels
-                    .insert(window.panel_focus_i, vec![Panel::new(wd)]);
-                window.panel_focus_j = 0;
+                window.split_up();
             } else if key_event == window.config.split_pane_down {
-                let wd = window.panel().working_directory.clone();
-                window
-                    .panels
-                    .insert(window.panel_focus_i + 1, vec![Panel::new(wd)]);
-                window.panel_focus_i += 1;
-                window.panel_focus_j = 0;
+                window.split_down();
             } else if key_event == window.config.split_pane_left {
-                let wd = window.panel().working_directory.clone();
-                window.panels[window.panel_focus_i].insert(window.panel_focus_j, Panel::new(wd));
+                window.split_left();
             } else if key_event == window.config.split_pane_right {
-                let wd = window.panel().working_directory.clone();
-                window.panels[window.panel_focus_i]
-                    .insert(window.panel_focus_j + 1, Panel::new(wd));
-                window.panel_focus_j += 1;
+                window.split_right();
             } else if key_event == window.config.close_active_pane {
-                let row_count = window.panels.len();
-                let row_len = window.panels[window.panel_focus_i].len();
-                if row_len <= 1 {
-                    if row_count > 1 {
-                        // remove row
-                        window.panels.remove(window.panel_focus_i);
-                        if window.panel_focus_i > 0 {
-                            window.panel_focus_i -= 1;
-                        }
-                    }
-                } else {
-                    // remove pane
-                    window.panels[window.panel_focus_i].remove(window.panel_focus_j);
-                    if window.panel_focus_j > 0 {
-                        window.panel_focus_j -= 1;
-                    }
-                }
+                window.close_active();
             } else {
                 let res = window.panels[window.panel_focus_i][window.panel_focus_j]
                     .process_key_event(key_event, &mut window.clipboard, &window.config);
