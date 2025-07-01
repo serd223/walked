@@ -108,8 +108,8 @@ impl Default for Config {
                 state: KeyEventState::NONE,
             },
             split_pane_up: KeyEvent {
-                code: KeyCode::Char('K'),
-                modifiers: KeyModifiers::CONTROL,
+                code: KeyCode::Char('k'),
+                modifiers: KeyModifiers::ALT,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
@@ -132,8 +132,8 @@ impl Default for Config {
                 state: KeyEventState::NONE,
             },
             split_pane_down: KeyEvent {
-                code: KeyCode::Char('J'),
-                modifiers: KeyModifiers::CONTROL,
+                code: KeyCode::Char('j'),
+                modifiers: KeyModifiers::ALT,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
@@ -150,8 +150,8 @@ impl Default for Config {
                 state: KeyEventState::NONE,
             },
             split_pane_left: KeyEvent {
-                code: KeyCode::Char('H'),
-                modifiers: KeyModifiers::CONTROL,
+                code: KeyCode::Char('h'),
+                modifiers: KeyModifiers::ALT,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
@@ -168,8 +168,8 @@ impl Default for Config {
                 state: KeyEventState::NONE,
             },
             split_pane_right: KeyEvent {
-                code: KeyCode::Char('L'),
-                modifiers: KeyModifiers::CONTROL,
+                code: KeyCode::Char('l'),
+                modifiers: KeyModifiers::ALT,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
