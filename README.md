@@ -54,17 +54,22 @@ show_entry_number = false
 Keybindings can be described with a very simple string format like this:
 ```toml
 new_file = "C-N" # Control + N, typing a lowercase 'n' wouldn't work in this case
-quit = "cS-Esc" # Control + Shift + Escape
-# Both control and shift modifiers can be uppercase or lowercase, so this would be valid too:
-# quit = "Cs-Esc" # Control + Shift + Escape
+quit = "cA-Esc" # Control + Alt + Escape
+# Both control and alt modifiers can be uppercase or lowercase, so this would be valid too:
+# quit = "Ca-Esc" # Control + Alt + Escape
 # or this:
-# quit = "cs-Esc" # Control + Shift + Escape
+# quit = "ca-Esc" # Control + Alt + Escape
 # and so on
 
 # Space can be written as-is
 dir_walk = " "
 # It can be used with any modifier just like other characters
 dir_up = "S- " # Shift + Space
+
+# Note that Control + Shift style bindings like this:
+copy = "CS-c" # Control + Shift + C
+# Only work on Windows due to the Console API there. On any other systems using standard
+# terminal protocols, terminals can't distinguish between Control and Control + Shift modifiers.
 
 # Please note that characters that have uppercase/lowercase variants may not work properly with the
 # shift modifier as the shift key is commonly used to reverse the capitalization of the typed letter
@@ -108,7 +113,7 @@ dir_up = "S- " # Shift + Space
 
 `pane_up`: C-k
 
-`split_pane_up`: C-K
+`split_pane_up`: A-k
 
 `down`: j
 
@@ -116,19 +121,19 @@ dir_up = "S- " # Shift + Space
 
 `pane_down`: C-j
 
-`split_pane_down`: C-J
+`split_pane_down`: A-j
 
 `left`: h
 
 `pane_left`: C-h
 
-`split_pane_left`: C-H
+`split_pane_left`: A-h
 
 `right`: l
 
 `pane_right`: C-l
 
-`split_pane_right`: C-L
+`split_pane_right`: A-l
 
 `insert_mode`: i
 

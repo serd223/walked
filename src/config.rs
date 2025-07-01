@@ -228,7 +228,7 @@ impl Config {
                             if mod_str.contains('s') || mod_str.contains('S') {
                                 modifiers = modifiers.union(KeyModifiers::SHIFT);
                             }
-                            if mod_str.contains('a') || mod_str.contains('S') {
+                            if mod_str.contains('a') || mod_str.contains('A') {
                                 modifiers = modifiers.union(KeyModifiers::ALT);
                             }
                             Self::key_code_from_str(code)
