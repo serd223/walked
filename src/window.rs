@@ -126,6 +126,7 @@ impl Window {
 pub enum PanelMode {
     Normal,
     Prompt,
+    Search,
     Insert,
 }
 
@@ -137,6 +138,8 @@ pub struct Panel {
     pub top: u16,
     pub bottom: u16,
     pub entries: Vec<PathBuf>,
+    pub incremental_search_results: Vec<usize>,
+    pub current_incremental_search_result: usize,
     pub working_directory: PathBuf,
     pub edit_buffer: String,
     pub cursor_offset: u16,
@@ -163,6 +166,8 @@ impl Panel {
             bottom: 1,
             working_directory: current_dir,
             entries: vec![],
+            incremental_search_results: vec![],
+            current_incremental_search_result: 0,
             edit_buffer: String::new(),
             cursor_offset: 0,
             current_entry_length: 0,
@@ -245,18 +250,39 @@ impl Panel {
                         }
                     }
                     CommandKind::IncrementalSearch => {
+                        self.incremental_search_results.clear();
                         for (i, entry) in self.entries.iter().enumerate() {
                             if let Some(name) = entry.file_name() {
                                 if let Some(name) = name.to_str() {
                                     if name.starts_with(&cmd.arg) {
-                                        self.table_state.select(Some(i));
-                                        self.cursor_offset = 0;
-                                        self.table_state.select_column(Some(1));
-                                        self.refresh_cursor();
-                                        break;
+                                        self.incremental_search_results.push(i);
                                     }
                                 }
                             }
+                        }
+                        if self.incremental_search_results.len() > 0 {
+                            if let Some(selected) = self.table_state.selected() {
+                                if let Some((result_index, &entry_index)) = self
+                                    .incremental_search_results
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, i)| **i >= selected)
+                                {
+                                    self.table_state.select(Some(entry_index));
+                                    self.current_incremental_search_result = result_index;
+                                    self.cursor_offset = 0;
+                                    self.table_state.select_column(Some(1));
+                                } else {
+                                    self.current_incremental_search_result = 0;
+                                    self.table_state
+                                        .select(Some(self.incremental_search_results[0]));
+                                    self.cursor_offset = 0;
+                                    self.table_state.select_column(Some(1));
+                                }
+                            }
+                            self.mode = PanelMode::Search
+                        } else {
+                            // TODO: Show some sort of message to inform the user that no matches were found
                         }
                     }
                     CommandKind::Custom(_) => todo!(),
@@ -299,6 +325,39 @@ impl Panel {
                         self.edit_buffer.pop();
                     } else if let KeyCode::Char(c) = key_event.code {
                         self.edit_buffer.push(c);
+                    }
+                }
+                PanelMode::Search => {
+                    if key_event == config.quit {
+                        result.quit = true;
+                        return result;
+                    } else if key_event.code == KeyCode::Esc {
+                        self.mode = PanelMode::Normal;
+                    } else if key_event == config.next_search_result {
+                        if self.current_incremental_search_result + 1
+                            >= self.incremental_search_results.len()
+                        {
+                            self.current_incremental_search_result = 0;
+                        } else {
+                            self.current_incremental_search_result += 1;
+                        }
+                        self.table_state.select(Some(
+                            self.incremental_search_results[self.current_incremental_search_result],
+                        ));
+                        self.cursor_offset = 0;
+                        self.table_state.select_column(Some(1));
+                    } else if key_event.code == config.prev_search_result {
+                        if self.current_incremental_search_result <= 0 {
+                            self.current_incremental_search_result =
+                                self.incremental_search_results.len() - 1;
+                        } else {
+                            self.current_incremental_search_result -= 1;
+                        }
+                        self.table_state.select(Some(
+                            self.incremental_search_results[self.current_incremental_search_result],
+                        ));
+                        self.cursor_offset = 0;
+                        self.table_state.select_column(Some(1));
                     }
                 }
                 PanelMode::Normal => {

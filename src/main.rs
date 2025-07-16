@@ -93,6 +93,7 @@ impl PanelMode {
         match *self {
             PanelMode::Normal => config.normal_mode_text.clone(),
             PanelMode::Prompt => config.normal_mode_text.clone(),
+            PanelMode::Search => config.search_mode_text.clone(),
             PanelMode::Insert => config.insert_mode_text.clone(),
         }
     }
@@ -346,7 +347,7 @@ fn run<W: ratatui::prelude::Backend>(
                                 f.render_widget(format!(">{}_", panel.edit_buffer), bottom_area);
                             }
                         }
-                        PanelMode::Normal => {
+                        PanelMode::Normal | PanelMode::Search => {
                             f.render_stateful_widget(
                                 Table::default()
                                     .widths([

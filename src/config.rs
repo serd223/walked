@@ -3,6 +3,7 @@ use toml::Value;
 
 pub struct Config {
     pub normal_mode_text: String,
+    pub search_mode_text: String,
     pub insert_mode_text: String,
     pub show_entry_number: bool,
     pub show_entry_type: bool,
@@ -19,6 +20,8 @@ pub struct Config {
     pub copy: KeyEvent,
     pub paste: KeyEvent,
     pub incremental_search: KeyEvent,
+    pub next_search_result: KeyEvent,
+    pub prev_search_result: KeyEvent,
     pub up: KeyEvent,
     pub select_up: KeyEvent,
     pub pane_up: KeyEvent,
@@ -49,6 +52,7 @@ impl Default for Config {
             show_working_directory: true,
             simple_working_directory: false,
             normal_mode_text: String::from("NORMAL"),
+            search_mode_text: String::from("SEARCH"),
             insert_mode_text: String::from("INSERT"),
             directory_text: String::from("D"),
             file_text: String::from("F"),
@@ -92,6 +96,18 @@ impl Default for Config {
             },
             incremental_search: KeyEvent {
                 code: KeyCode::Char('/'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            next_search_result: KeyEvent {
+                code: KeyCode::Char('n'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            prev_search_result: KeyEvent {
+                code: KeyCode::Char('N'),
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
@@ -306,6 +322,11 @@ impl Config {
                 self.normal_mode_text = v.to_string();
             }
         }
+        if let Some(v) = toml.get("search_mode_text") {
+            if let Some(v) = v.as_str() {
+                self.search_mode_text = v.to_string();
+            }
+        }
         if let Some(v) = toml.get("insert_mode_text") {
             if let Some(v) = v.as_str() {
                 self.insert_mode_text = v.to_string();
@@ -366,7 +387,13 @@ impl Config {
         if let Some(v) = toml.get("copy") {
             Self::key_event_from_toml(&mut self.copy, v);
         }
-        if let Some(v) = toml.get("incremental-search") {
+        if let Some(v) = toml.get("incremental_search") {
+            Self::key_event_from_toml(&mut self.paste, v);
+        }
+        if let Some(v) = toml.get("next_search_result") {
+            Self::key_event_from_toml(&mut self.paste, v);
+        }
+        if let Some(v) = toml.get("prev_search_result") {
             Self::key_event_from_toml(&mut self.paste, v);
         }
         if let Some(v) = toml.get("paste") {

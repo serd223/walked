@@ -107,7 +107,11 @@ copy = "CS-c" # Control + Shift + C
 
 `paste`: C-p
 
-`incremental-search`: /
+`incremental_search`: /
+
+`next_search_result`: n
+
+`prev_search_result`: N
 
 `up`: k
 
