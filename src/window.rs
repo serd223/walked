@@ -346,7 +346,7 @@ impl Panel {
                         ));
                         self.cursor_offset = 0;
                         self.table_state.select_column(Some(1));
-                    } else if key_event.code == config.prev_search_result {
+                    } else if key_event == config.prev_search_result {
                         if self.current_incremental_search_result <= 0 {
                             self.current_incremental_search_result =
                                 self.incremental_search_results.len() - 1;
