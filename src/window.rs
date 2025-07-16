@@ -280,7 +280,9 @@ impl Panel {
                                     self.table_state.select_column(Some(1));
                                 }
                             }
-                            self.mode = PanelMode::Search
+                            if self.incremental_search_results.len() > 1 {
+                                self.mode = PanelMode::Search
+                            }
                         } else {
                             // TODO: Show some sort of message to inform the user that no matches were found
                         }
@@ -333,6 +335,14 @@ impl Panel {
                         return result;
                     } else if key_event.code == KeyCode::Esc {
                         self.mode = PanelMode::Normal;
+                    } else if key_event == config.dir_walk {
+                        if self.walk(
+                            self.incremental_search_results[self.current_incremental_search_result],
+                        ) {
+                            self.table_state.select_first();
+                            self.refresh_cursor();
+                            self.mode = PanelMode::Normal;
+                        }
                     } else if key_event == config.next_search_result {
                         if self.current_incremental_search_result + 1
                             >= self.incremental_search_results.len()
