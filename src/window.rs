@@ -323,6 +323,10 @@ impl Panel {
                         self.edit_buffer.clear();
                         self.command_prompt = None;
                         self.mode = PanelMode::Normal;
+                    } else if key_event.code == KeyCode::Esc {
+                        self.edit_buffer.clear();
+                        self.command_prompt = None;
+                        self.mode = PanelMode::Normal;
                     } else if key_event.code == KeyCode::Backspace {
                         self.edit_buffer.pop();
                     } else if let KeyCode::Char(c) = key_event.code {
