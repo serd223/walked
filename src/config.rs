@@ -18,6 +18,7 @@ pub struct Config {
     pub remove: KeyEvent,
     pub copy: KeyEvent,
     pub paste: KeyEvent,
+    pub incremental_search: KeyEvent,
     pub up: KeyEvent,
     pub select_up: KeyEvent,
     pub pane_up: KeyEvent,
@@ -86,6 +87,12 @@ impl Default for Config {
             paste: KeyEvent {
                 code: KeyCode::Char('p'),
                 modifiers: KeyModifiers::CONTROL,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            incremental_search: KeyEvent {
+                code: KeyCode::Char('/'),
+                modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
@@ -358,6 +365,9 @@ impl Config {
         }
         if let Some(v) = toml.get("copy") {
             Self::key_event_from_toml(&mut self.copy, v);
+        }
+        if let Some(v) = toml.get("incremental-search") {
+            Self::key_event_from_toml(&mut self.paste, v);
         }
         if let Some(v) = toml.get("paste") {
             Self::key_event_from_toml(&mut self.paste, v);

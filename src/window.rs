@@ -12,7 +12,7 @@ pub enum CommandKind {
     NewFile,
     NewDirectory,
     #[allow(dead_code)]
-    FindEntry, // TODO
+    IncrementalSearch, // TODO
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
 }
@@ -22,7 +22,7 @@ impl ToString for CommandKind {
         match self {
             CommandKind::NewFile => "new-file".to_string(),
             CommandKind::NewDirectory => "new-directory".to_string(),
-            CommandKind::FindEntry => "find-entry".to_string(),
+            CommandKind::IncrementalSearch => "incremental-search".to_string(),
             CommandKind::Custom(s) => s.clone(),
         }
     }
@@ -244,7 +244,21 @@ impl Panel {
                             }
                         }
                     }
-                    CommandKind::FindEntry => todo!(),
+                    CommandKind::IncrementalSearch => {
+                        for (i, entry) in self.entries.iter().enumerate() {
+                            if let Some(name) = entry.file_name() {
+                                if let Some(name) = name.to_str() {
+                                    if name.starts_with(&cmd.arg) {
+                                        self.table_state.select(Some(i));
+                                        self.cursor_offset = 0;
+                                        self.table_state.select_column(Some(1));
+                                        self.refresh_cursor();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     CommandKind::Custom(_) => todo!(),
                 }
             }
@@ -328,6 +342,8 @@ impl Panel {
                         if self.cursor_offset < self.current_entry_length as u16 {
                             self.cursor_offset += 1;
                         }
+                    } else if key_event == config.incremental_search {
+                        self.prompt(CommandKind::IncrementalSearch);
                     } else if key_event == config.new_file {
                         self.prompt(CommandKind::NewFile);
                     } else if key_event == config.new_directory {

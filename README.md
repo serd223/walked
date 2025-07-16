@@ -10,9 +10,9 @@ Simple terminal file manager
  - Create, remove and rename files/directories.
  - Select multiple entries and do the operations mentioned above in bulk (except renaming, for now)
  - Split the view into multiple panes for editing multiple directories at the same time
+ - Do incremental search
 
 Work in progress/planned features:
- - Incremental search
  - Fuzzy search
  - Exhaustive support for symlinks
 
@@ -106,6 +106,8 @@ copy = "CS-c" # Control + Shift + C
 `copy`: C-y
 
 `paste`: C-p
+
+`incremental-search`: /
 
 `up`: k
 
