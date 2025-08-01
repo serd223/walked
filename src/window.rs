@@ -11,8 +11,7 @@ pub const TABLE_HEADER_MIN_WIDTH: u16 = 8;
 pub enum CommandKind {
     NewFile,
     NewDirectory,
-    #[allow(dead_code)]
-    IncrementalSearch, // TODO
+    IncrementalSearch,
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
 }
@@ -315,7 +314,7 @@ impl Panel {
                     if key_event == config.quit {
                         result.quit = true;
                         return result;
-                    } else if key_event.code == KeyCode::Enter {
+                    } else if key_event.code == KeyCode::Enter && key_event.is_press() {
                         self.queue.push(Command {
                             kind: self.command_prompt.clone().unwrap(),
                             arg: self.edit_buffer.clone(),
@@ -323,13 +322,15 @@ impl Panel {
                         self.edit_buffer.clear();
                         self.command_prompt = None;
                         self.mode = PanelMode::Normal;
-                    } else if key_event.code == KeyCode::Esc {
+                    } else if key_event.code == KeyCode::Esc && key_event.is_press() {
                         self.edit_buffer.clear();
                         self.command_prompt = None;
                         self.mode = PanelMode::Normal;
-                    } else if key_event.code == KeyCode::Backspace {
+                    } else if key_event.code == KeyCode::Backspace && key_event.is_press() {
                         self.edit_buffer.pop();
-                    } else if let KeyCode::Char(c) = key_event.code {
+                    } else if let KeyCode::Char(c) = key_event.code
+                        && key_event.is_press()
+                    {
                         self.edit_buffer.push(c);
                     }
                 }
