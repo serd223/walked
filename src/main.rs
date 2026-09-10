@@ -68,6 +68,7 @@ fn main() -> Result<(), std::io::Error> {
     )?;
     let mut terminal = Terminal::new(CrosstermBackend::new(BufWriter::new(std::io::stderr())))?;
     let current_dir = std::path::absolute(".").expect("Can't parse current working directory");
+    let current_dir2 = current_dir.clone();
     let mut config = Config::default();
 
     let args: Vec<String> = std::env::args().collect();
@@ -87,8 +88,12 @@ fn main() -> Result<(), std::io::Error> {
         crossterm::terminal::LeaveAlternateScreen
     )?;
     match result {
-        Ok(wd) => {
+        Ok(Some(wd)) => {
             println!("{}", wd.to_str().unwrap());
+            Ok(())
+        }
+        Ok(None) => {
+            println!("{}", current_dir2.to_str().unwrap());
             Ok(())
         }
         Err(e) => Err(e),
@@ -111,7 +116,7 @@ fn run<W: ratatui::prelude::Backend>(
     terminal: &mut Terminal<W>,
     config: Config,
     current_dir: PathBuf,
-) -> Result<PathBuf, std::io::Error> {
+) -> Result<Option<PathBuf>, std::io::Error> {
     let mut window = Window {
         panel: Panel::new(current_dir),
         clipboard: Vec::new(),
@@ -140,7 +145,11 @@ fn run<W: ratatui::prelude::Backend>(
 
             window.panel.process_command_queue();
             if res.quit {
-                return Ok(window.panel.working_directory.clone());
+                if res.dont_write_stdout {
+                    return Ok(None);
+                } else {
+                    return Ok(Some(window.panel.working_directory.clone()));
+                }
             }
         }
 
@@ -301,7 +310,7 @@ fn run<W: ratatui::prelude::Backend>(
                             bottom_area,
                         );
                     } else {
-                        f.render_widget(format!(">{}_", panel.edit_buffer), bottom_area);
+                        f.render_widget(format!(":{}_", panel.edit_buffer), bottom_area);
                     }
                 }
                 PanelMode::Normal | PanelMode::Search(_) => {

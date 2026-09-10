@@ -9,6 +9,7 @@ Simple terminal file manager
  - Select multiple entries and do the operations mentioned above in bulk (except renaming, for now)
  - `ls` style information display
  - Do incremental search
+ - unzip/untar files (via `unzip` and `tar` utilities)
 
 Work in progress/planned features:
  - Fuzzy search
@@ -47,7 +48,6 @@ Boolean and string options can be written like normal. For example:
 ```toml
 # my_conf.toml
 normal_mode_text = "NORM"
-show_entry_number = false
 ```
 Keybindings can be described with a very simple string format like this:
 ```toml
@@ -130,6 +130,8 @@ copy = "CS-c" # Control + Shift + C
 `insert_mode`: i
 
 `normal_mode`: `Esc`
+
+`command_mode`: :
 
 `quit`: q
 

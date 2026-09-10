@@ -28,6 +28,7 @@ pub struct Config {
     pub dir_up: KeyEvent,
     pub insert_mode: KeyEvent,
     pub normal_mode: KeyEvent,
+    pub command_mode: KeyEvent,
     pub quit: KeyEvent,
 }
 
@@ -149,6 +150,12 @@ impl Default for Config {
             },
             normal_mode: KeyEvent {
                 code: KeyCode::Esc,
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            command_mode: KeyEvent {
+                code: KeyCode::Char(':'),
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
@@ -343,6 +350,9 @@ impl Config {
         }
         if let Some(v) = toml.get("normal_mode") {
             Self::key_event_from_toml(&mut self.normal_mode, v);
+        }
+        if let Some(v) = toml.get("command_mode") {
+            Self::key_event_from_toml(&mut self.command_mode, v);
         }
         if let Some(v) = toml.get("quit") {
             Self::key_event_from_toml(&mut self.quit, v);

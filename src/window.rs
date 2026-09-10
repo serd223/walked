@@ -173,6 +173,7 @@ pub struct Panel {
 
 pub struct PanelFrameData {
     pub quit: bool,
+    pub dont_write_stdout: bool,
 }
 
 impl Panel {
@@ -208,64 +209,74 @@ impl Panel {
         self.edit_buffer.clear();
     }
 
+    pub fn new_dir_with_name(&mut self, dir_name: &str) -> PathBuf {
+        let new_dir = new_path(self.working_directory.join(dir_name));
+        if let Err(err) = std::fs::create_dir(&new_dir) {
+            match err.kind() {
+                std::io::ErrorKind::PermissionDenied => {
+                    self.errors.push(WalkedError::PermissionDenied {
+                        path: new_dir.clone(),
+                        path_kind: PathKind::Dir,
+                    })
+                }
+                _ => self.errors.push(WalkedError::Message(format!(
+                    "Couldn't create directory '{}'",
+                    new_dir.display()
+                ))),
+            }
+        } else {
+            self.read_working_dir();
+
+            for (i, entry) in self.entries.iter().enumerate() {
+                if entry.file == new_dir {
+                    self.table_state.select(Some(i));
+                    self.cursor_offset = 0;
+                    self.table_state.select_column(Some(6));
+                }
+            }
+        }
+        return new_dir;
+    }
+
+    pub fn new_file_with_name(&mut self, file_name: &str) -> PathBuf {
+        let new_file = new_path(self.working_directory.join(file_name));
+        if let Err(err) = std::fs::File::create(&new_file) {
+            match err.kind() {
+                std::io::ErrorKind::PermissionDenied => {
+                    self.errors.push(WalkedError::PermissionDenied {
+                        path: new_file.clone(),
+                        path_kind: PathKind::File,
+                    })
+                }
+                _ => self.errors.push(WalkedError::Message(format!(
+                    "Couldn't create file '{}'",
+                    new_file.display()
+                ))),
+            }
+        } else {
+            self.read_working_dir();
+
+            for (i, entry) in self.entries.iter().enumerate() {
+                if entry.file == new_file {
+                    self.table_state.select(Some(i));
+                    self.cursor_offset = 0;
+                    self.table_state.select_column(Some(6));
+                }
+            }
+        }
+        return new_file;
+    }
+
     pub fn process_command_queue(&mut self) {
         if self.queue.len() > 0 {
             let queue = self.queue.drain(..).collect::<Vec<_>>();
             for cmd in queue {
                 match cmd.kind {
                     CommandKind::NewFile => {
-                        let new_file = new_path(self.working_directory.join(cmd.arg));
-                        if let Err(err) = std::fs::File::create(&new_file) {
-                            match err.kind() {
-                                std::io::ErrorKind::PermissionDenied => {
-                                    self.errors.push(WalkedError::PermissionDenied {
-                                        path: new_file.clone(),
-                                        path_kind: PathKind::File,
-                                    })
-                                }
-                                _ => self.errors.push(WalkedError::Message(format!(
-                                    "Couldn't create file '{}'",
-                                    new_file.display()
-                                ))),
-                            }
-                        } else {
-                            self.read_working_dir();
-
-                            for (i, entry) in self.entries.iter().enumerate() {
-                                if entry.file == new_file {
-                                    self.table_state.select(Some(i));
-                                    self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(6));
-                                }
-                            }
-                        }
+                        self.new_file_with_name(&cmd.arg);
                     }
                     CommandKind::NewDirectory => {
-                        let new_dir = new_path(self.working_directory.join(cmd.arg));
-                        if let Err(err) = std::fs::create_dir(&new_dir) {
-                            match err.kind() {
-                                std::io::ErrorKind::PermissionDenied => {
-                                    self.errors.push(WalkedError::PermissionDenied {
-                                        path: new_dir.clone(),
-                                        path_kind: PathKind::Dir,
-                                    })
-                                }
-                                _ => self.errors.push(WalkedError::Message(format!(
-                                    "Couldn't create directory '{}'",
-                                    new_dir.display()
-                                ))),
-                            }
-                        } else {
-                            self.read_working_dir();
-
-                            for (i, entry) in self.entries.iter().enumerate() {
-                                if entry.file == new_dir {
-                                    self.table_state.select(Some(i));
-                                    self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(6));
-                                }
-                            }
-                        }
+                        self.new_dir_with_name(&cmd.arg);
                     }
                     CommandKind::IncrementalSearch => {
                         self.incremental_search_results.clear();
@@ -311,6 +322,64 @@ impl Panel {
         }
     }
 
+    pub fn unzip_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
+        let mut ok = false;
+        let p = p.as_ref();
+        if p.is_file() {
+            let out_dir = self.new_dir_with_name(dir);
+            if let Ok(_) = std::process::Command::new("unzip")
+                .arg("-q")
+                .arg(p)
+                .arg("-d")
+                .arg(out_dir)
+                .output()
+            {
+                ok = true;
+            }
+        }
+        if !ok {
+            if let Some(file_name) = p.to_str() {
+                self.errors.push(WalkedError::Message(format!(
+                    "Couldn't unzip file '{}'",
+                    file_name
+                )));
+            } else {
+                self.errors
+                    .push(WalkedError::Message("Couldn't unzip file".to_string()));
+            }
+        }
+        ok
+    }
+
+    pub fn untar_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
+        let mut ok = false;
+        let p = p.as_ref();
+        if p.is_file() {
+            let out_dir = self.new_dir_with_name(dir);
+            if let Ok(_) = std::process::Command::new("tar")
+                .arg("-xf")
+                .arg(p)
+                .arg("-C")
+                .arg(out_dir)
+                .output()
+            {
+                ok = true;
+            }
+        }
+        if !ok {
+            if let Some(file_name) = p.to_str() {
+                self.errors.push(WalkedError::Message(format!(
+                    "Couldn't untar file '{}'",
+                    file_name
+                )));
+            } else {
+                self.errors
+                    .push(WalkedError::Message("Couldn't untar file".to_string()));
+            }
+        }
+        ok
+    }
+
     /// Returns false if quit was pressed
     pub fn update(
         &mut self,
@@ -318,7 +387,10 @@ impl Panel {
         clipboard: &mut Vec<PathBuf>,
         config: &Config,
     ) -> PanelFrameData {
-        let mut result = PanelFrameData { quit: false };
+        let mut result = PanelFrameData {
+            quit: false,
+            dont_write_stdout: false,
+        };
 
         if self.errors.len() > 0 {
             if key_event.kind == KeyEventKind::Press {
@@ -327,14 +399,36 @@ impl Panel {
         } else {
             match self.mode {
                 PanelMode::Prompt => {
-                    if key_event == config.quit {
-                        result.quit = true;
-                        return result;
-                    } else if key_event.code == KeyCode::Enter && key_event.is_press() {
-                        self.queue.push(Command {
-                            kind: self.command_prompt.clone().unwrap(),
-                            arg: self.edit_buffer.clone(),
-                        });
+                    if key_event.code == KeyCode::Enter && key_event.is_press() {
+                        if let Some(cmd) = &self.command_prompt {
+                            self.queue.push(Command {
+                                kind: cmd.clone(),
+                                arg: self.edit_buffer.clone(),
+                            });
+                        }
+                        let cmd = self.edit_buffer.trim();
+                        if cmd == "q" {
+                            result.quit = true;
+                            return result;
+                        } else if cmd == "q!" {
+                            result.quit = true;
+                            result.dont_write_stdout = true;
+                            return result;
+                        } else if cmd == "untar" {
+                            if let Some(i) = self.table_state.selected() {
+                                _ = self.untar_file(
+                                    &self.entries[i].file.clone(),
+                                    &self.entries[i].name.clone(),
+                                );
+                            }
+                        } else if cmd == "unzip" {
+                            if let Some(i) = self.table_state.selected() {
+                                _ = self.unzip_file(
+                                    &self.entries[i].file.clone(),
+                                    &self.entries[i].name.clone(),
+                                );
+                            }
+                        }
                         self.edit_buffer.clear();
                         self.command_prompt = None;
                         self.mode = PanelMode::Normal;
@@ -704,6 +798,10 @@ impl Panel {
                                 self.table_state.select_column(Some(6));
                             }
                         }
+                    } else if key_event == config.command_mode {
+                        self.command_prompt = None;
+                        self.edit_buffer.clear();
+                        self.mode = PanelMode::Prompt;
                     } else if key_event == config.quit {
                         result.quit = true;
                         return result;
@@ -816,7 +914,7 @@ impl Panel {
         }
     }
     pub fn walk(&mut self, current_entry: usize) -> bool {
-        if self.entries.is_empty() {
+        if current_entry >= self.entries.len() {
             return false;
         }
         if self.entries[current_entry].name == "." {
@@ -830,6 +928,23 @@ impl Panel {
             self.working_directory = selected.file.clone();
             self.read_working_dir();
             return true;
+        } else if selected.file.is_file() {
+            if selected.name.ends_with(".zip") {
+                _ = self.unzip_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar.gz") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar.xz") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar.bz2") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            }
         }
         false
     }
