@@ -33,92 +33,9 @@ pub struct Command {
 }
 
 pub struct Window {
-    pub panels: Vec<Vec<Panel>>,
-    pub panel_focus_i: usize,
-    pub panel_focus_j: usize,
+    pub panel: Panel,
     pub clipboard: Vec<PathBuf>,
     pub config: Config,
-}
-
-impl Window {
-    pub fn pane_up(&mut self) {
-        if self.panel_focus_i > 0 {
-            self.panel_focus_i -= 1;
-            self.panel_focus_j = self
-                .panel_focus_j
-                .min(self.panels[self.panel_focus_i].len() - 1);
-        }
-    }
-
-    pub fn pane_down(&mut self) {
-        if self.panel_focus_i + 1 < self.panels.len() {
-            self.panel_focus_i += 1;
-            self.panel_focus_j = self
-                .panel_focus_j
-                .min(self.panels[self.panel_focus_i].len() - 1);
-        }
-    }
-
-    pub fn pane_left(&mut self) {
-        if self.panel_focus_j > 0 {
-            self.panel_focus_j -= 1;
-        }
-    }
-
-    pub fn pane_right(&mut self) {
-        if self.panel_focus_j + 1 < self.panels[self.panel_focus_i].len() {
-            self.panel_focus_j += 1;
-        }
-    }
-
-    pub fn split_up(&mut self) {
-        let wd = self.panel().working_directory.clone();
-        self.panels.insert(self.panel_focus_i, vec![Panel::new(wd)]);
-        self.panel_focus_j = 0;
-    }
-
-    pub fn split_down(&mut self) {
-        let wd = self.panel().working_directory.clone();
-        self.panels
-            .insert(self.panel_focus_i + 1, vec![Panel::new(wd)]);
-        self.panel_focus_i += 1;
-        self.panel_focus_j = 0;
-    }
-
-    pub fn split_left(&mut self) {
-        let wd = self.panel().working_directory.clone();
-        self.panels[self.panel_focus_i].insert(self.panel_focus_j, Panel::new(wd));
-    }
-
-    pub fn split_right(&mut self) {
-        let wd = self.panel().working_directory.clone();
-        self.panels[self.panel_focus_i].insert(self.panel_focus_j + 1, Panel::new(wd));
-        self.panel_focus_j += 1;
-    }
-
-    pub fn close_active(&mut self) {
-        let row_count = self.panels.len();
-        let row_len = self.panels[self.panel_focus_i].len();
-        if row_len <= 1 {
-            if row_count > 1 {
-                // remove row
-                self.panels.remove(self.panel_focus_i);
-                if self.panel_focus_i > 0 {
-                    self.panel_focus_i -= 1;
-                }
-            }
-        } else {
-            // remove pane
-            self.panels[self.panel_focus_i].remove(self.panel_focus_j);
-            if self.panel_focus_j > 0 {
-                self.panel_focus_j -= 1;
-            }
-        }
-    }
-
-    pub fn panel(&mut self) -> &Panel {
-        &self.panels[self.panel_focus_i][self.panel_focus_j]
-    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -150,7 +67,6 @@ pub struct Panel {
 }
 
 pub struct PanelFrameData {
-    pub should_refresh: bool,
     pub quit: bool,
 }
 
@@ -187,7 +103,7 @@ impl Panel {
         self.edit_buffer.clear();
     }
 
-    pub fn process_command_queue(&mut self, result: &mut PanelFrameData) {
+    pub fn process_command_queue(&mut self) {
         if self.queue.len() > 0 {
             let queue = self.queue.drain(..).collect::<Vec<_>>();
             for cmd in queue {
@@ -209,7 +125,6 @@ impl Panel {
                             }
                         } else {
                             self.read_working_dir();
-                            result.should_refresh = true;
 
                             for (i, entry) in self.entries.iter().enumerate() {
                                 if *entry == new_file {
@@ -237,7 +152,6 @@ impl Panel {
                             }
                         } else {
                             self.read_working_dir();
-                            result.should_refresh = true;
 
                             for (i, entry) in self.entries.iter().enumerate() {
                                 if *entry == new_dir {
@@ -301,7 +215,6 @@ impl Panel {
     ) -> PanelFrameData {
         let mut result = PanelFrameData {
             quit: false,
-            should_refresh: false,
         };
 
         if self.errors.len() > 0 {
@@ -490,7 +403,6 @@ impl Panel {
                             }
                             if refresh {
                                 self.read_working_dir();
-                                result.should_refresh = true;
                             }
                         }
                     } else if key_event == config.copy && self.entries.len() > 0 {
@@ -558,7 +470,6 @@ impl Panel {
                         }
                         if refresh {
                             self.read_working_dir();
-                            result.should_refresh = true;
                         }
                     } else if key_event == config.remove && self.entries.len() > 0 {
                         if let Some(current_entry) = self.table_state.selected() {
@@ -633,7 +544,6 @@ impl Panel {
 
                             if refresh {
                                 self.read_working_dir();
-                                result.should_refresh = true;
                             }
                         }
                     } else if key_event == config.insert_mode {
@@ -704,7 +614,6 @@ impl Panel {
                                         }
                                     } else {
                                         self.read_working_dir();
-                                        result.should_refresh = true;
                                     }
                                 }
                             }

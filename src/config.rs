@@ -24,23 +24,14 @@ pub struct Config {
     pub prev_search_result: KeyEvent,
     pub up: KeyEvent,
     pub select_up: KeyEvent,
-    pub pane_up: KeyEvent,
-    pub split_pane_up: KeyEvent,
     pub down: KeyEvent,
     pub select_down: KeyEvent,
-    pub pane_down: KeyEvent,
-    pub split_pane_down: KeyEvent,
     pub left: KeyEvent,
-    pub pane_left: KeyEvent,
-    pub split_pane_left: KeyEvent,
     pub right: KeyEvent,
-    pub pane_right: KeyEvent,
-    pub split_pane_right: KeyEvent,
     pub dir_walk: KeyEvent,
     pub dir_up: KeyEvent,
     pub insert_mode: KeyEvent,
     pub normal_mode: KeyEvent,
-    pub close_active_pane: KeyEvent,
     pub quit: KeyEvent,
 }
 
@@ -124,18 +115,6 @@ impl Default for Config {
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
-            pane_up: KeyEvent {
-                code: KeyCode::Char('k'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            split_pane_up: KeyEvent {
-                code: KeyCode::Char('k'),
-                modifiers: KeyModifiers::ALT,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
             down: KeyEvent {
                 code: KeyCode::Char('j'),
                 modifiers: KeyModifiers::NONE,
@@ -148,51 +127,15 @@ impl Default for Config {
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
-            pane_down: KeyEvent {
-                code: KeyCode::Char('j'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            split_pane_down: KeyEvent {
-                code: KeyCode::Char('j'),
-                modifiers: KeyModifiers::ALT,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
             left: KeyEvent {
                 code: KeyCode::Char('h'),
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
-            pane_left: KeyEvent {
-                code: KeyCode::Char('h'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            split_pane_left: KeyEvent {
-                code: KeyCode::Char('h'),
-                modifiers: KeyModifiers::ALT,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
             right: KeyEvent {
                 code: KeyCode::Char('l'),
                 modifiers: KeyModifiers::NONE,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            pane_right: KeyEvent {
-                code: KeyCode::Char('l'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            split_pane_right: KeyEvent {
-                code: KeyCode::Char('l'),
-                modifiers: KeyModifiers::ALT,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
@@ -205,12 +148,6 @@ impl Default for Config {
             normal_mode: KeyEvent {
                 code: KeyCode::Esc,
                 modifiers: KeyModifiers::NONE,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            close_active_pane: KeyEvent {
-                code: KeyCode::Char('q'),
-                modifiers: KeyModifiers::CONTROL,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
@@ -405,41 +342,17 @@ impl Config {
         if let Some(v) = toml.get("select_up") {
             Self::key_event_from_toml(&mut self.select_up, v);
         }
-        if let Some(v) = toml.get("pane_up") {
-            Self::key_event_from_toml(&mut self.pane_up, v);
-        }
-        if let Some(v) = toml.get("split_pane_up") {
-            Self::key_event_from_toml(&mut self.split_pane_up, v);
-        }
         if let Some(v) = toml.get("down") {
             Self::key_event_from_toml(&mut self.down, v);
         }
         if let Some(v) = toml.get("select_down") {
             Self::key_event_from_toml(&mut self.select_down, v);
         }
-        if let Some(v) = toml.get("pane_down") {
-            Self::key_event_from_toml(&mut self.pane_down, v);
-        }
-        if let Some(v) = toml.get("split_pane_down") {
-            Self::key_event_from_toml(&mut self.split_pane_down, v);
-        }
         if let Some(v) = toml.get("left") {
             Self::key_event_from_toml(&mut self.left, v);
         }
-        if let Some(v) = toml.get("pane_left") {
-            Self::key_event_from_toml(&mut self.pane_left, v);
-        }
-        if let Some(v) = toml.get("split_pane_left") {
-            Self::key_event_from_toml(&mut self.split_pane_left, v);
-        }
         if let Some(v) = toml.get("right") {
             Self::key_event_from_toml(&mut self.right, v);
-        }
-        if let Some(v) = toml.get("pane_right") {
-            Self::key_event_from_toml(&mut self.pane_right, v);
-        }
-        if let Some(v) = toml.get("split_pane_right") {
-            Self::key_event_from_toml(&mut self.split_pane_right, v);
         }
         if let Some(v) = toml.get("dir_walk") {
             Self::key_event_from_toml(&mut self.dir_walk, v);
@@ -452,9 +365,6 @@ impl Config {
         }
         if let Some(v) = toml.get("normal_mode") {
             Self::key_event_from_toml(&mut self.normal_mode, v);
-        }
-        if let Some(v) = toml.get("close_active_pane") {
-            Self::key_event_from_toml(&mut self.close_active_pane, v);
         }
         if let Some(v) = toml.get("quit") {
             Self::key_event_from_toml(&mut self.quit, v);
