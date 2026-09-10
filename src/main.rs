@@ -59,7 +59,6 @@ impl std::fmt::Display for WalkedError {
 
 impl std::error::Error for WalkedError {}
 
-const HIGHLIGHT_SYMBOL: &str = ">>";
 fn main() -> Result<(), std::io::Error> {
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(std::io::stderr(), crossterm::terminal::EnterAlternateScreen)?;
@@ -127,11 +126,9 @@ fn run<W: ratatui::prelude::Backend>(
         };
 
         if let Event::Key(key_event) = event {
-            let res = window.panel.update(
-                key_event,
-                &mut window.clipboard,
-                &window.config,
-            );
+            let res = window
+                .panel
+                .update(key_event, &mut window.clipboard, &window.config);
 
             window.panel.process_command_queue();
             if res.quit {
@@ -179,11 +176,11 @@ fn run<W: ratatui::prelude::Backend>(
                     }
                     if window.config.show_entry_type {
                         let entry_type = {
-                            if panel.entries[i].is_file() {
+                            if panel.entries[i].file.is_file() {
                                 &window.config.file_text
-                            } else if panel.entries[i].is_dir() {
+                            } else if panel.entries[i].file.is_dir() {
                                 &window.config.directory_text
-                            } else if panel.entries[i].is_symlink() {
+                            } else if panel.entries[i].file.is_symlink() {
                                 &window.config.symlink_text
                             } else {
                                 &window.config.other_text
@@ -194,23 +191,15 @@ fn run<W: ratatui::prelude::Backend>(
                         }
                         header.push_str(entry_type);
                     }
-                    if let Ok(metadata) = std::fs::metadata(&panel.entries[i]) {
-                        if panel.entries[i].is_file() {
+                    if let Ok(metadata) = std::fs::metadata(&panel.entries[i].file) {
+                        if panel.entries[i].file.is_file() {
                             let size = bytesize::ByteSize::b(metadata.len());
                             header.push_str(&format!(" {}", size));
                         } else {
                             header.push_str(" - ");
                         }
                     }
-                    panel.header_width =
-                        (header.chars().count() as u16).max(panel.header_width);
-                    let last = {
-                        if let Some(l) = p.file_name() {
-                            l.to_os_string()
-                        } else {
-                            std::ffi::OsString::from("..")
-                        }
-                    };
+                    panel.header_width = (header.chars().count() as u16).max(panel.header_width);
                     if panel.mode == PanelMode::Insert {
                         if let Some(selected) = panel.table_state.selected() {
                             if selected == i {
@@ -235,7 +224,7 @@ fn run<W: ratatui::prelude::Backend>(
                             false
                         }
                     };
-                    let line = last.to_str().unwrap().to_string();
+                    let line = p.name.clone();
                     Row::new([
                         header.into_line(),
                         if is_in_selection {
@@ -252,28 +241,22 @@ fn run<W: ratatui::prelude::Backend>(
                         0
                     } else if panel.entries.len() > 0 {
                         (i - panel.table_state.offset()).min(
-                            (panel.entries.len() - 1)
-                                .min(view.inner(area).height as usize - 1),
+                            (panel.entries.len() - 1).min(view.inner(area).height as usize - 1),
                         ) as u16
                     } else {
                         0
                     }
                 };
                 f.set_cursor_position((
-                    area.x
-                        + panel.left
-                        + panel.header_width
-                        + 1
-                        + panel.cursor_offset
-                        + if panel.mode == PanelMode::Normal {
-                            HIGHLIGHT_SYMBOL.chars().count() as u16
-                        } else {
-                            0
-                        },
+                    area.x + panel.left + panel.header_width + 1 + panel.cursor_offset,
                     area.y + panel.top + 1 + row_offset,
                 ));
             }
 
+            let table = Table::default()
+                .widths([Constraint::Length(panel.header_width), Constraint::Min(0)])
+                .rows(content)
+                .block(view.clone());
             match panel.mode {
                 PanelMode::Prompt => {
                     let mut top_area = area;
@@ -281,19 +264,7 @@ fn run<W: ratatui::prelude::Backend>(
                     let mut bottom_area = top_area;
                     bottom_area.y += top_area.height;
                     bottom_area.height = 2;
-                    f.render_stateful_widget(
-                        Table::default()
-                            .widths([
-                                Constraint::Length(panel.header_width),
-                                Constraint::Min(0),
-                            ])
-                            .rows(content)
-                            .block(view)
-                            .row_highlight_style(Style::new().reversed())
-                            .highlight_symbol(HIGHLIGHT_SYMBOL),
-                        top_area,
-                        &mut panel.table_state,
-                    );
+                    f.render_stateful_widget(table, top_area, &mut panel.table_state);
                     if let Some(cmd) = &panel.command_prompt {
                         f.render_widget(
                             format!("({}) >{}_", cmd.to_string(), panel.edit_buffer),
@@ -304,30 +275,11 @@ fn run<W: ratatui::prelude::Backend>(
                     }
                 }
                 PanelMode::Normal | PanelMode::Search(_) => {
-                    f.render_stateful_widget(
-                        Table::default()
-                            .widths([
-                                Constraint::Length(panel.header_width),
-                                Constraint::Min(0),
-                            ])
-                            .rows(content)
-                            .block(view)
-                            .row_highlight_style(Style::new().reversed())
-                            .highlight_symbol(HIGHLIGHT_SYMBOL),
-                        area,
-                        &mut panel.table_state,
-                    );
+                    f.render_stateful_widget(table, area, &mut panel.table_state);
                 }
                 PanelMode::Insert => {
                     f.render_stateful_widget(
-                        Table::default()
-                            .widths([
-                                Constraint::Length(panel.header_width),
-                                Constraint::Min(0),
-                            ])
-                            .rows(content)
-                            .block(view)
-                            .cell_highlight_style(Style::new().underlined()),
+                        table.cell_highlight_style(Style::new().underlined()),
                         area,
                         &mut panel.table_state,
                     );
