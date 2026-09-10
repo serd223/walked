@@ -10,7 +10,7 @@ use ratatui::{
     layout::Constraint,
     prelude::CrosstermBackend,
     style::{Style, Stylize},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Padding, Row, Table},
 };
 use window::{Panel, PanelMode, Window};
@@ -61,7 +61,11 @@ impl std::error::Error for WalkedError {}
 
 fn main() -> Result<(), std::io::Error> {
     crossterm::terminal::enable_raw_mode()?;
-    crossterm::execute!(std::io::stderr(), crossterm::terminal::EnterAlternateScreen)?;
+    crossterm::execute!(
+        std::io::stderr(),
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::cursor::SetCursorStyle::SteadyBlock
+    )?;
     let mut terminal = Terminal::new(CrosstermBackend::new(BufWriter::new(std::io::stderr())))?;
     let current_dir = std::path::absolute(".").expect("Can't parse current working directory");
     let mut config = Config::default();
@@ -77,7 +81,11 @@ fn main() -> Result<(), std::io::Error> {
 
     let result = run(&mut terminal, config, current_dir);
     crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)?;
+    crossterm::execute!(
+        std::io::stderr(),
+        crossterm::cursor::SetCursorStyle::DefaultUserShape,
+        crossterm::terminal::LeaveAlternateScreen
+    )?;
     match result {
         Ok(wd) => {
             println!("{}", wd.to_str().unwrap());
@@ -161,61 +169,31 @@ fn run<W: ratatui::prelude::Backend>(
                 })
                 .title_bottom(panel.mode.to_string(&window.config).into_centered_line());
 
+            let mut col_widths = [0u16; 7];
+            for entry in &panel.entries {
+                for col in 0..7 {
+                    col_widths[col] = col_widths[col].max(entry[col].chars().count() as u16);
+                }
+            }
+
             let content = panel
                 .entries
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    let mut header = String::new();
-                    if window.config.show_entry_number {
-                        header.push_str(&format!(
-                            "{:w$}",
-                            i,
-                            w = (panel.entries.len() - 1).to_string().chars().count()
-                        ))
-                    }
-                    if window.config.show_entry_type {
-                        let entry_type = {
-                            if panel.entries[i].file.is_file() {
-                                &window.config.file_text
-                            } else if panel.entries[i].file.is_dir() {
-                                &window.config.directory_text
-                            } else if panel.entries[i].file.is_symlink() {
-                                &window.config.symlink_text
-                            } else {
-                                &window.config.other_text
-                            }
-                        };
-                        if window.config.show_entry_number {
-                            header.push(':');
-                        }
-                        header.push_str(entry_type);
-                    }
-                    if let Ok(metadata) = std::fs::metadata(&panel.entries[i].file) {
-                        if panel.entries[i].file.is_file() {
-                            let size = bytesize::ByteSize::b(metadata.len());
-                            header.push_str(&format!(" {}", size));
-                        } else {
-                            header.push_str(" - ");
-                        }
-                    }
-                    panel.header_width = (header.chars().count() as u16).max(panel.header_width);
-                    if panel.mode == PanelMode::Insert {
-                        if let Some(selected) = panel.table_state.selected() {
-                            if selected == i {
-                                return Row::new([header, panel.edit_buffer.clone()]);
-                            }
-                        }
-                    }
                     let is_in_selection = {
                         if let Some(selection_start) = panel.selection_start {
                             if let Some(cur) = panel.table_state.selected() {
-                                if cur > selection_start {
-                                    i < cur && i >= selection_start
-                                } else if cur < selection_start {
-                                    i > cur && i <= selection_start
+                                if i == cur {
+                                    true
                                 } else {
-                                    false
+                                    if cur > selection_start {
+                                        i < cur && i >= selection_start
+                                    } else if cur < selection_start {
+                                        i > cur && i <= selection_start
+                                    } else {
+                                        false
+                                    }
                                 }
                             } else {
                                 false
@@ -224,15 +202,52 @@ fn run<W: ratatui::prelude::Backend>(
                             false
                         }
                     };
-                    let line = p.name.clone();
-                    Row::new([
-                        header.into_line(),
-                        if is_in_selection {
-                            line.reversed().into_line()
-                        } else {
-                            line.into_line()
-                        },
-                    ])
+
+                    let cells: Vec<Line> = (0..7)
+                        .map(|col| {
+                            if col == 0 && !is_in_selection {
+                                let spans: Vec<Span> = p[col]
+                                    .chars()
+                                    .map(|c| match c {
+                                        'r' => "r".blue(),
+                                        'w' => "w".green(),
+                                        'x' => "x".red(),
+                                        'd' => "d".yellow(),
+                                        _ => Span::raw(c.to_string()),
+                                    })
+                                    .collect();
+                                let line = Line::from(spans);
+                                return line;
+                            }
+                            let text = if col == 6 && panel.mode == PanelMode::Insert {
+                                if let Some(selected) = panel.table_state.selected() {
+                                    if selected == i {
+                                        &panel.edit_buffer
+                                    } else {
+                                        &p[col]
+                                    }
+                                } else {
+                                    &p[col]
+                                }
+                            } else {
+                                &p[col]
+                            };
+
+                            let text = if is_in_selection {
+                                text.as_str().into_line().reversed()
+                            } else {
+                                text.as_str().into_line()
+                            };
+
+                            if col == 6 && p.perms.starts_with('d') {
+                                text.blue()
+                            } else {
+                                text
+                            }
+                        })
+                        .collect();
+
+                    Row::new(cells)
                 })
                 .collect::<Vec<Row>>();
             if let Some(i) = panel.table_state.selected() {
@@ -247,16 +262,31 @@ fn run<W: ratatui::prelude::Backend>(
                         0
                     }
                 };
+                let selected_col = panel.table_state.selected_column().unwrap_or(6).min(6);
+                let mut col_offset = 0u16;
+                for c in 0..selected_col {
+                    col_offset += col_widths[c] + 1;
+                }
                 f.set_cursor_position((
-                    area.x + panel.left + panel.header_width + 1 + panel.cursor_offset,
+                    area.x + panel.left + col_offset + panel.cursor_offset,
                     area.y + panel.top + 1 + row_offset,
                 ));
             }
 
+            let constraints = [
+                Constraint::Length(col_widths[0]),
+                Constraint::Length(col_widths[1]),
+                Constraint::Length(col_widths[2]),
+                Constraint::Length(col_widths[3]),
+                Constraint::Length(col_widths[4]),
+                Constraint::Length(col_widths[5]),
+                Constraint::Min(0),
+            ];
             let table = Table::default()
-                .widths([Constraint::Length(panel.header_width), Constraint::Min(0)])
+                .widths(constraints)
                 .rows(content)
-                .block(view.clone());
+                .block(view.clone())
+                .cell_highlight_style(Style::new().reversed());
             match panel.mode {
                 PanelMode::Prompt => {
                     let mut top_area = area;

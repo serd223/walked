@@ -1,15 +1,13 @@
-# walkEd
+# walked
 Simple terminal file manager
 
-![walked_demonstration.gif](github/walked_demonstration.gif)
-
 # Features
-`walkEd` can:
+`walked` can:
  - Navigate through the filesystem
- - Duplicate, copy and paste files/directories,
- - Create, remove and rename files/directories.
+ - Duplicate, copy and paste files/directories
+ - Create, remove and rename files/directories
  - Select multiple entries and do the operations mentioned above in bulk (except renaming, for now)
- - Split the view into multiple panes for editing multiple directories at the same time
+ - `ls` style information display
  - Do incremental search
 
 Work in progress/planned features:
@@ -23,7 +21,7 @@ Work in progress/planned features:
   $ cargo install --path .
 ```
 
-For you to be able to change your directory upon quitting `walkEd`, you will need to add something along the lines of the following script to your autoexec script (.bashrc, Powershell_profile.ps1, etc):
+For you to be able to change your directory upon quitting `walked`, you will need to add something along the lines of the following script to your autoexec script (.bashrc, Powershell_profile.ps1, etc):
 ```powershell
 # Example Powershell profile
 function wd() {
@@ -31,11 +29,11 @@ function wd() {
 }
 ```
 
-Now, you can use the `wd` command to use `walkEd` and change your working directory with it.
+Now, you can use the `wd` command to use `walked` and change your working directory with it.
 
 
 # Configuration
-`walkEd` uses a simple `TOML` file for configuration. You can optionally supply the path to your configuration file as a command line argument to the program. (This would typically be done in your autoexec script mentioned above)
+`walked` uses a simple `TOML` file for configuration. You can optionally supply the path to your configuration file as a command line argument to the program. (This would typically be done in your autoexec script mentioned above)
 ## Example
 ```console
   $ walked myconf.toml # uses default configuration if myconf.toml couldn't be found
@@ -101,11 +99,11 @@ copy = "CS-c" # Control + Shift + C
 
 `duplicate`: C-d
 
-`remove`: C-x
+`remove`: C-r
 
-`copy`: C-y
+`copy`: C-c
 
-`paste`: C-p
+`paste`: C-v
 
 `incremental_search`: /
 
@@ -117,35 +115,17 @@ copy = "CS-c" # Control + Shift + C
 
 `select_up`: K
 
-`pane_up`: C-k
-
-`split_pane_up`: A-k
-
 `down`: j
 
 `select_down`: J
 
-`pane_down`: C-j
-
-`split_pane_down`: A-j
-
 `left`: h
 
-`pane_left`: C-h
-
-`split_pane_left`: A-h
-
 `right`: l
-
-`pane_right`: C-l
-
-`split_pane_right`: A-l
 
 `insert_mode`: i
 
 `normal_mode`: `Esc`
-
-`close_active_pane`: C-q
 
 `quit`: q
 

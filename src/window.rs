@@ -7,7 +7,6 @@ use std::{
     str::FromStr,
 };
 
-pub const TABLE_HEADER_MIN_WIDTH: u16 = 8;
 // pub const NEW_DIRECTORY_TEXT: &'static str = ".#NEWDIR";
 // pub const NEW_FILE_TEXT: &'static str = ".#NEWFILE";
 
@@ -82,10 +81,12 @@ impl LsEntry {
                             if sub_column == 0 || sub_column == 1 {
                                 current_column = n;
                                 sub_column += 1;
+                                result[current_column].push(c)
                             }
                         }
                         if n == 6 {
                             current_column = n;
+                            result[current_column].push(c)
                         }
                     } else {
                         result[current_column].push(c)
@@ -93,7 +94,7 @@ impl LsEntry {
                 }
                 State::SkippingWhiteSpace => {
                     if c.is_whitespace() {
-                        if current_column == 5 && sub_column <= 2 {
+                        if current_column == 5 {
                             result[current_column].push(c)
                         }
                         if current_column == 6 {
@@ -165,7 +166,6 @@ pub struct Panel {
     pub edit_buffer: String,
     pub cursor_offset: u16,
     pub current_entry_length: usize,
-    pub header_width: u16,
     pub selection_start: Option<usize>,
     pub queue: Vec<Command>,
     pub command_prompt: Option<CommandKind>,
@@ -191,13 +191,13 @@ impl Panel {
             edit_buffer: String::new(),
             cursor_offset: 0,
             current_entry_length: 0,
-            header_width: TABLE_HEADER_MIN_WIDTH,
             selection_start: None,
             queue: Vec::new(),
             command_prompt: None,
         };
         panel.read_working_dir();
         panel.table_state.select_first();
+        panel.table_state.select_column(Some(6));
         panel.refresh_cursor();
         panel
     }
@@ -235,7 +235,7 @@ impl Panel {
                                 if entry.file == new_file {
                                     self.table_state.select(Some(i));
                                     self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(1));
+                                    self.table_state.select_column(Some(6));
                                 }
                             }
                         }
@@ -262,7 +262,7 @@ impl Panel {
                                 if entry.file == new_dir {
                                     self.table_state.select(Some(i));
                                     self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(1));
+                                    self.table_state.select_column(Some(6));
                                 }
                             }
                         }
@@ -285,17 +285,21 @@ impl Panel {
                                     self.table_state.select(Some(entry_index));
                                     self.current_incremental_search_result = result_index;
                                     self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(1));
+                                    self.table_state.select_column(Some(6));
                                 } else {
                                     self.current_incremental_search_result = 0;
                                     self.table_state
                                         .select(Some(self.incremental_search_results[0]));
                                     self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(1));
+                                    self.table_state.select_column(Some(6));
                                 }
                             }
                             if self.incremental_search_results.len() > 1 {
-                                self.mode = PanelMode::Search(Some(format!(" ({})", cmd.arg)));
+                                self.mode = PanelMode::Search(Some(format!(
+                                    " \"{}\" ({} results) ",
+                                    cmd.arg,
+                                    self.incremental_search_results.len()
+                                )));
                             }
                         } else {
                             self.mode = PanelMode::Search(Some(" <no mathces found>".to_string()));
@@ -374,7 +378,7 @@ impl Panel {
                             self.incremental_search_results[self.current_incremental_search_result],
                         ));
                         self.cursor_offset = 0;
-                        self.table_state.select_column(Some(1));
+                        self.table_state.select_column(Some(6));
                     } else if key_event == config.prev_search_result
                         && self.incremental_search_results.len() > 0
                     {
@@ -388,7 +392,7 @@ impl Panel {
                             self.incremental_search_results[self.current_incremental_search_result],
                         ));
                         self.cursor_offset = 0;
-                        self.table_state.select_column(Some(1));
+                        self.table_state.select_column(Some(6));
                     }
                 }
                 PanelMode::Normal => {
@@ -396,12 +400,14 @@ impl Panel {
                         if let Some(i) = self.table_state.selected() {
                             if self.walk(i) {
                                 self.table_state.select_first();
+                                self.table_state.select_column(Some(6));
                                 self.refresh_cursor();
                             }
                         }
                     } else if key_event == config.dir_up {
                         if self.parent() {
                             self.table_state.select_first();
+                            self.table_state.select_column(Some(6));
                             self.refresh_cursor();
                         }
                     } else if key_event == config.up {
@@ -427,10 +433,38 @@ impl Panel {
                     } else if key_event == config.left {
                         if self.cursor_offset > 0 {
                             self.cursor_offset -= 1;
+                        } else {
+                            let col = self.table_state.selected_column().unwrap_or(6);
+                            if col > 0 {
+                                let new_col = col - 1;
+                                self.table_state.select_column(Some(new_col));
+                                if let Some(i) = self.table_state.selected() {
+                                    if i < self.entries.len() {
+                                        let new_column_length =
+                                            self.entries[i][new_col].chars().count();
+                                        self.current_entry_length = new_column_length;
+                                        self.cursor_offset = new_column_length as u16;
+                                    }
+                                }
+                            }
                         }
                     } else if key_event == config.right {
                         if self.cursor_offset < self.current_entry_length as u16 {
                             self.cursor_offset += 1;
+                        } else {
+                            let col = self.table_state.selected_column().unwrap_or(6);
+                            if col < 6 {
+                                let new_col = col + 1;
+                                self.table_state.select_column(Some(new_col));
+                                self.cursor_offset = 0;
+                                if let Some(i) = self.table_state.selected() {
+                                    if i < self.entries.len() {
+                                        let new_column_length =
+                                            self.entries[i][new_col].chars().count();
+                                        self.current_entry_length = new_column_length;
+                                    }
+                                }
+                            }
                         }
                     } else if key_event == config.incremental_search {
                         self.prompt(CommandKind::IncrementalSearch);
@@ -656,11 +690,18 @@ impl Panel {
                         }
                     } else if key_event == config.insert_mode {
                         if self.entries.len() > 0 {
-                            self.mode = PanelMode::Insert;
-                            if let Some(i) = self.table_state.selected() {
-                                self.edit_buffer = self.entries[i].name.clone();
+                            let col = self.table_state.selected_column().unwrap_or(6);
+                            if col == 6 {
+                                _ = crossterm::execute!(
+                                    std::io::stderr(),
+                                    crossterm::cursor::SetCursorStyle::SteadyBar
+                                );
+                                self.mode = PanelMode::Insert;
+                                if let Some(i) = self.table_state.selected() {
+                                    self.edit_buffer = self.entries[i].name.clone();
+                                }
+                                self.table_state.select_column(Some(6));
                             }
-                            self.table_state.select_column(Some(1));
                         }
                     } else if key_event == config.quit {
                         result.quit = true;
@@ -724,13 +765,17 @@ impl Panel {
                             }
                         }
                         if !denied {
+                            _ = crossterm::execute!(
+                                std::io::stderr(),
+                                crossterm::cursor::SetCursorStyle::SteadyBlock
+                            );
                             self.mode = PanelMode::Normal;
                             self.edit_buffer.clear();
                         }
                     } else if key_event.kind == KeyEventKind::Press {
                         if key_event.code == KeyCode::Backspace {
                             if self.cursor_offset > 0 {
-                                let mut idx = self.edit_buffer.len() - 1;
+                                let mut idx = self.edit_buffer.chars().count() - 1;
                                 for (i, (len, _)) in self.edit_buffer.char_indices().enumerate() {
                                     if i >= self.cursor_offset as usize {
                                         break;
@@ -742,7 +787,7 @@ impl Panel {
                                 self.cursor_offset -= 1;
                             }
                         } else if let KeyCode::Char(c) = key_event.code {
-                            let mut idx = self.edit_buffer.len();
+                            let mut idx = self.edit_buffer.chars().count();
                             for (i, (len, _)) in self.edit_buffer.char_indices().enumerate() {
                                 if i == self.cursor_offset as usize {
                                     idx = len;
@@ -763,7 +808,8 @@ impl Panel {
     pub fn refresh_cursor(&mut self) {
         if let Some(i) = self.table_state.selected() {
             if i < self.entries.len() {
-                self.current_entry_length = self.entries[i].name.chars().count();
+                let col = self.table_state.selected_column().unwrap_or(6).min(6);
+                self.current_entry_length = self.entries[i][col].chars().count();
                 self.cursor_offset = self.cursor_offset.min(self.current_entry_length as u16)
             }
         }

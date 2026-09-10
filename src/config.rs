@@ -68,19 +68,19 @@ impl Default for Config {
                 state: KeyEventState::NONE,
             },
             remove: KeyEvent {
-                code: KeyCode::Char('x'),
+                code: KeyCode::Char('r'),
                 modifiers: KeyModifiers::CONTROL,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
             copy: KeyEvent {
-                code: KeyCode::Char('y'),
+                code: KeyCode::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
             paste: KeyEvent {
-                code: KeyCode::Char('p'),
+                code: KeyCode::Char('v'),
                 modifiers: KeyModifiers::CONTROL,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
