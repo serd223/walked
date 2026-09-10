@@ -5,14 +5,8 @@ pub struct Config {
     pub normal_mode_text: String,
     pub search_mode_text: String,
     pub insert_mode_text: String,
-    pub show_entry_number: bool,
-    pub show_entry_type: bool,
     pub show_working_directory: bool,
     pub simple_working_directory: bool,
-    pub directory_text: String,
-    pub file_text: String,
-    pub symlink_text: String,
-    pub other_text: String,
     pub new_file: KeyEvent,
     pub new_directory: KeyEvent,
     pub duplicate: KeyEvent,
@@ -27,7 +21,9 @@ pub struct Config {
     pub down: KeyEvent,
     pub select_down: KeyEvent,
     pub left: KeyEvent,
+    pub column_left: KeyEvent,
     pub right: KeyEvent,
+    pub column_right: KeyEvent,
     pub dir_walk: KeyEvent,
     pub dir_up: KeyEvent,
     pub insert_mode: KeyEvent,
@@ -38,17 +34,11 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            show_entry_number: true,
-            show_entry_type: true,
             show_working_directory: true,
             simple_working_directory: false,
             normal_mode_text: String::from("NORMAL"),
             search_mode_text: String::from("SEARCH"),
             insert_mode_text: String::from("INSERT"),
-            directory_text: String::from("D"),
-            file_text: String::from("F"),
-            symlink_text: String::from("S"),
-            other_text: String::from("O"),
             new_file: KeyEvent {
                 code: KeyCode::Char('n'),
                 modifiers: KeyModifiers::CONTROL,
@@ -133,8 +123,20 @@ impl Default for Config {
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
+            column_left: KeyEvent {
+                code: KeyCode::Char('H'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
             right: KeyEvent {
                 code: KeyCode::Char('l'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            column_right: KeyEvent {
+                code: KeyCode::Char('L'),
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
@@ -269,16 +271,6 @@ impl Config {
                 self.insert_mode_text = v.to_string();
             }
         }
-        if let Some(v) = toml.get("show_entry_number") {
-            if let Some(v) = v.as_bool() {
-                self.show_entry_number = v;
-            }
-        }
-        if let Some(v) = toml.get("show_entry_type") {
-            if let Some(v) = v.as_bool() {
-                self.show_entry_type = v;
-            }
-        }
         if let Some(v) = toml.get("show_working_directory") {
             if let Some(v) = v.as_bool() {
                 self.show_working_directory = v;
@@ -287,26 +279,6 @@ impl Config {
         if let Some(v) = toml.get("simple_working_directory") {
             if let Some(v) = v.as_bool() {
                 self.simple_working_directory = v;
-            }
-        }
-        if let Some(v) = toml.get("directory_text") {
-            if let Some(v) = v.as_str() {
-                self.directory_text = v.to_string();
-            }
-        }
-        if let Some(v) = toml.get("file_text") {
-            if let Some(v) = v.as_str() {
-                self.file_text = v.to_string();
-            }
-        }
-        if let Some(v) = toml.get("symlink_text") {
-            if let Some(v) = v.as_str() {
-                self.symlink_text = v.to_string();
-            }
-        }
-        if let Some(v) = toml.get("other_text") {
-            if let Some(v) = v.as_str() {
-                self.other_text = v.to_string();
             }
         }
         if let Some(v) = toml.get("new_file") {
@@ -351,8 +323,14 @@ impl Config {
         if let Some(v) = toml.get("left") {
             Self::key_event_from_toml(&mut self.left, v);
         }
+        if let Some(v) = toml.get("column_left") {
+            Self::key_event_from_toml(&mut self.column_left, v);
+        }
         if let Some(v) = toml.get("right") {
             Self::key_event_from_toml(&mut self.right, v);
+        }
+        if let Some(v) = toml.get("column_right") {
+            Self::key_event_from_toml(&mut self.column_right, v);
         }
         if let Some(v) = toml.get("dir_walk") {
             Self::key_event_from_toml(&mut self.dir_walk, v);

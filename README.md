@@ -121,7 +121,11 @@ copy = "CS-c" # Control + Shift + C
 
 `left`: h
 
+`column_left`: H
+
 `right`: l
+
+`column_right`: L
 
 `insert_mode`: i
 

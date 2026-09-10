@@ -438,15 +438,15 @@ impl Panel {
                             if col > 0 {
                                 let new_col = col - 1;
                                 self.table_state.select_column(Some(new_col));
-                                if let Some(i) = self.table_state.selected() {
-                                    if i < self.entries.len() {
-                                        let new_column_length =
-                                            self.entries[i][new_col].chars().count();
-                                        self.current_entry_length = new_column_length;
-                                        self.cursor_offset = new_column_length as u16;
-                                    }
-                                }
+                                self.refresh_cursor();
                             }
+                        }
+                    } else if key_event == config.column_left {
+                        let col = self.table_state.selected_column().unwrap_or(6);
+                        if col > 0 {
+                            let new_col = col - 1;
+                            self.table_state.select_column(Some(new_col));
+                            self.refresh_cursor();
                         }
                     } else if key_event == config.right {
                         if self.cursor_offset < self.current_entry_length as u16 {
@@ -456,15 +456,16 @@ impl Panel {
                             if col < 6 {
                                 let new_col = col + 1;
                                 self.table_state.select_column(Some(new_col));
+                                self.refresh_cursor();
                                 self.cursor_offset = 0;
-                                if let Some(i) = self.table_state.selected() {
-                                    if i < self.entries.len() {
-                                        let new_column_length =
-                                            self.entries[i][new_col].chars().count();
-                                        self.current_entry_length = new_column_length;
-                                    }
-                                }
                             }
+                        }
+                    } else if key_event == config.column_right {
+                        let col = self.table_state.selected_column().unwrap_or(6);
+                        if col < 6 {
+                            let new_col = col + 1;
+                            self.table_state.select_column(Some(new_col));
+                            self.refresh_cursor();
                         }
                     } else if key_event == config.incremental_search {
                         self.prompt(CommandKind::IncrementalSearch);
