@@ -854,6 +854,7 @@ impl Panel {
                         self.entries.push(e);
                     }
                 }
+                self.refresh_cursor();
             }
         }
     }
