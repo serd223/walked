@@ -125,7 +125,7 @@ impl Window {
 pub enum PanelMode {
     Normal,
     Prompt,
-    Search,
+    Search(Option<String>),
     Insert,
 }
 
@@ -253,7 +253,7 @@ impl Panel {
                         for (i, entry) in self.entries.iter().enumerate() {
                             if let Some(name) = entry.file_name() {
                                 if let Some(name) = name.to_str() {
-                                    if name.starts_with(&cmd.arg) {
+                                    if name.to_lowercase().contains(&cmd.arg.to_lowercase()) {
                                         self.incremental_search_results.push(i);
                                     }
                                 }
@@ -280,10 +280,10 @@ impl Panel {
                                 }
                             }
                             if self.incremental_search_results.len() > 1 {
-                                self.mode = PanelMode::Search
+                                self.mode = PanelMode::Search(Some(format!(" ({})", cmd.arg)));
                             }
                         } else {
-                            // TODO: Show some sort of message to inform the user that no matches were found
+                            self.mode = PanelMode::Search(Some(" <no mathces found>".to_string()));
                         }
                     }
                     CommandKind::Custom(_) => todo!(),
@@ -334,7 +334,7 @@ impl Panel {
                         self.edit_buffer.push(c);
                     }
                 }
-                PanelMode::Search => {
+                PanelMode::Search(_) => {
                     if key_event == config.quit {
                         result.quit = true;
                         return result;
@@ -348,7 +348,9 @@ impl Panel {
                             self.refresh_cursor();
                             self.mode = PanelMode::Normal;
                         }
-                    } else if key_event == config.next_search_result {
+                    } else if key_event == config.next_search_result
+                        && self.incremental_search_results.len() > 0
+                    {
                         if self.current_incremental_search_result + 1
                             >= self.incremental_search_results.len()
                         {
@@ -361,7 +363,9 @@ impl Panel {
                         ));
                         self.cursor_offset = 0;
                         self.table_state.select_column(Some(1));
-                    } else if key_event == config.prev_search_result {
+                    } else if key_event == config.prev_search_result
+                        && self.incremental_search_results.len() > 0
+                    {
                         if self.current_incremental_search_result <= 0 {
                             self.current_incremental_search_result =
                                 self.incremental_search_results.len() - 1;

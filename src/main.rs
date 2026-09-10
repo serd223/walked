@@ -90,10 +90,11 @@ fn main() -> Result<(), std::io::Error> {
 
 impl PanelMode {
     fn to_string(&self, config: &Config) -> String {
-        match *self {
+        match self {
             PanelMode::Normal => config.normal_mode_text.clone(),
             PanelMode::Prompt => config.normal_mode_text.clone(),
-            PanelMode::Search => config.search_mode_text.clone(),
+            PanelMode::Search(None) => config.search_mode_text.clone(),
+            PanelMode::Search(Some(msg)) => format!("{}{msg}", config.search_mode_text),
             PanelMode::Insert => config.insert_mode_text.clone(),
         }
     }
@@ -347,7 +348,7 @@ fn run<W: ratatui::prelude::Backend>(
                                 f.render_widget(format!(">{}_", panel.edit_buffer), bottom_area);
                             }
                         }
-                        PanelMode::Normal | PanelMode::Search => {
+                        PanelMode::Normal | PanelMode::Search(_) => {
                             f.render_stateful_widget(
                                 Table::default()
                                     .widths([
