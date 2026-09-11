@@ -328,6 +328,7 @@ impl Panel {
         if p.is_file() {
             let out_dir = self.new_dir_with_name(dir);
             if let Ok(_) = std::process::Command::new("unzip")
+                .current_dir(&self.working_directory)
                 .arg("-q")
                 .arg(p)
                 .arg("-d")
@@ -357,6 +358,7 @@ impl Panel {
         if p.is_file() {
             let out_dir = self.new_dir_with_name(dir);
             if let Ok(_) = std::process::Command::new("tar")
+                .current_dir(&self.working_directory)
                 .arg("-xf")
                 .arg(p)
                 .arg("-C")
@@ -378,6 +380,32 @@ impl Panel {
             }
         }
         ok
+    }
+
+    pub fn run_shell_command(&mut self, config: &Config, cmd: &str, file_path: &str) {
+        {
+            let cmd = cmd.replace(&config.shell_command_placeholder, file_path);
+            match std::process::Command::new("/bin/sh")
+                .current_dir(&self.working_directory)
+                .arg("-c")
+                .arg(cmd)
+                .output()
+            {
+                Ok(out) => {
+                    if let Ok(out) = std::str::from_utf8(&out.stdout) {
+                        if out.len() > 0 {
+                            self.errors.push(WalkedError::Message(out.to_string()));
+                        }
+                        self.read_working_dir();
+                        self.refresh_cursor();
+                    }
+                }
+                Err(err) => {
+                    self.errors
+                        .push(WalkedError::Message(format!("ERROR: {err}")));
+                }
+            }
+        }
     }
 
     /// Returns false if quit was pressed
@@ -427,6 +455,32 @@ impl Panel {
                                     &self.entries[i].file.clone(),
                                     &self.entries[i].name.clone(),
                                 );
+                            }
+                        } else if cmd.starts_with("sh") && cmd.len() > 2 {
+                            let cmd = cmd[2..].trim();
+                            if let Some(current_entry) = self.table_state.selected() {
+                                let cmd = cmd.to_string();
+                                if let Some(selection_start) = self.selection_start {
+                                    for i in current_entry.min(selection_start)
+                                        ..=current_entry.max(selection_start)
+                                    {
+                                        if let Some(file_path) = self
+                                            .working_directory
+                                            .join(&self.entries[i].file)
+                                            .to_str()
+                                        {
+                                            self.run_shell_command(config, &cmd, file_path);
+                                        }
+                                    }
+                                } else {
+                                    if let Some(file_path) = self
+                                        .working_directory
+                                        .join(&self.entries[current_entry].file)
+                                        .to_str()
+                                    {
+                                        self.run_shell_command(config, &cmd, file_path);
+                                    }
+                                }
                             }
                         }
                         self.edit_buffer.clear();

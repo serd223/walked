@@ -10,6 +10,7 @@ Simple terminal file manager
  - `ls` style information display
  - Do incremental search
  - unzip/untar files (via `unzip` and `tar` utilities)
+ - Run shell utilities one or multiple files via :sh command
 
 Work in progress/planned features:
  - Fuzzy search
@@ -48,6 +49,7 @@ Boolean and string options can be written like normal. For example:
 ```toml
 # my_conf.toml
 normal_mode_text = "NORM"
+shell_command_placeholder = "%" # Expanded to the current selected file when using :sh
 ```
 Keybindings can be described with a very simple string format like this:
 ```toml

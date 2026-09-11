@@ -5,6 +5,7 @@ pub struct Config {
     pub normal_mode_text: String,
     pub search_mode_text: String,
     pub insert_mode_text: String,
+    pub shell_command_placeholder: String,
     pub show_working_directory: bool,
     pub simple_working_directory: bool,
     pub new_file: KeyEvent,
@@ -40,6 +41,7 @@ impl Default for Config {
             normal_mode_text: String::from("NORMAL"),
             search_mode_text: String::from("SEARCH"),
             insert_mode_text: String::from("INSERT"),
+            shell_command_placeholder: String::from("%"),
             new_file: KeyEvent {
                 code: KeyCode::Char('n'),
                 modifiers: KeyModifiers::CONTROL,
@@ -276,6 +278,11 @@ impl Config {
         if let Some(v) = toml.get("insert_mode_text") {
             if let Some(v) = v.as_str() {
                 self.insert_mode_text = v.to_string();
+            }
+        }
+        if let Some(v) = toml.get("shell_command_placeholder") {
+            if let Some(v) = v.as_str() {
+                self.shell_command_placeholder = v.to_string();
             }
         }
         if let Some(v) = toml.get("show_working_directory") {
