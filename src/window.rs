@@ -33,7 +33,7 @@ const COMMANDS: [CommandKind; 8] = [
 ];
 
 impl CommandKind {
-    pub fn command(&self) -> &'static str {
+    pub const fn command(&self) -> &'static str {
         match self {
             CommandKind::NewFile => "new-file",
             CommandKind::NewDirectory => "new-directory",
@@ -539,6 +539,73 @@ impl Panel {
                         self.edit_buffer.clear();
                         self.command_prompt = None;
                         self.mode = PanelMode::Normal;
+                    } else if key_event.code == KeyCode::Tab && key_event.is_press() {
+                        (|| {
+                            let cmd = self.edit_buffer.trim();
+                            for c in COMMANDS {
+                                if cmd.len() < c.command().len() && c.command().starts_with(cmd) {
+                                    self.edit_buffer.clear();
+                                    self.edit_buffer += c.command();
+                                    return;
+                                }
+                            }
+                            if let Some(query) = cmd.split_ascii_whitespace().last() {
+                                let query_len = query.chars().count();
+                                let path = PathBuf::from(query);
+                                let parent = path.parent();
+                                if let Some(parent) = parent {
+                                    if parent == Path::new("") {
+                                        for e in self.entries.iter() {
+                                            if e.name.starts_with(query)
+                                                && query.len() < e.name.len()
+                                            {
+                                                for _ in 0..query_len {
+                                                    self.edit_buffer.pop();
+                                                }
+                                                self.edit_buffer += &e.name;
+                                                return;
+                                            }
+                                        }
+                                    } else {
+                                        let name = {
+                                            if let Some(name) = path.file_name() {
+                                                if let Some(name) = name.to_str() {
+                                                    name
+                                                } else {
+                                                    return;
+                                                }
+                                            } else {
+                                                return;
+                                            }
+                                        };
+                                        if parent.exists() && parent.is_dir() {
+                                            if let Ok(dir_contents) = parent.read_dir() {
+                                                for entry in dir_contents {
+                                                    if let Ok(entry) = entry {
+                                                        if let Some(d) = entry.file_name().to_str()
+                                                        {
+                                                            if d.starts_with(name)
+                                                                && name.len() < d.len()
+                                                            {
+                                                                if let Some(p) =
+                                                                    entry.path().to_str()
+                                                                {
+                                                                    for _ in 0..query_len {
+                                                                        self.edit_buffer.pop();
+                                                                    }
+                                                                    self.edit_buffer += p;
+                                                                }
+                                                                return;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        })();
                     } else if key_event.code == KeyCode::Esc && key_event.is_press() {
                         self.edit_buffer.clear();
                         self.command_prompt = None;
