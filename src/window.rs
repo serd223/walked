@@ -7,25 +7,67 @@ use std::{
     str::FromStr,
 };
 
-// pub const NEW_DIRECTORY_TEXT: &'static str = ".#NEWDIR";
-// pub const NEW_FILE_TEXT: &'static str = ".#NEWFILE";
-
 #[derive(Clone)]
 pub enum CommandKind {
     NewFile,
     NewDirectory,
     IncrementalSearch,
+    Quit,
+    QuitNoSave,
+    Untar,
+    Unzip,
+    Shell,
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
+}
+// NOTE: ! DO NOT FORGET TO ADD VARIANTS TO THIS ARRAY !
+const COMMANDS: [CommandKind; 8] = [
+    CommandKind::NewFile,
+    CommandKind::NewDirectory,
+    CommandKind::IncrementalSearch,
+    CommandKind::QuitNoSave,
+    CommandKind::Quit,
+    CommandKind::Untar,
+    CommandKind::Unzip,
+    CommandKind::Shell,
+];
+
+impl CommandKind {
+    pub fn command(&self) -> &'static str {
+        match self {
+            CommandKind::NewFile => "new-file",
+            CommandKind::NewDirectory => "new-directory",
+            CommandKind::IncrementalSearch => "incremental-search",
+            CommandKind::Quit => "q",
+            CommandKind::QuitNoSave => "q!",
+            CommandKind::Untar => "untar",
+            CommandKind::Unzip => "unzip",
+            CommandKind::Shell => "sh",
+            CommandKind::Custom(_) => panic!("Custom commands do not have static command names"),
+        }
+    }
+}
+impl FromStr for CommandKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut words = s.trim().split_whitespace();
+        if let Some(s) = words.next() {
+            for c in COMMANDS {
+                if s.starts_with(c.command()) {
+                    return Ok(c);
+                }
+            }
+        }
+        Err(())
+    }
 }
 
 impl ToString for CommandKind {
     fn to_string(&self) -> String {
         match self {
-            CommandKind::NewFile => "new-file".to_string(),
-            CommandKind::NewDirectory => "new-directory".to_string(),
-            CommandKind::IncrementalSearch => "incremental-search".to_string(),
             CommandKind::Custom(s) => s.clone(),
+            _ => self.command().to_string(),
         }
     }
 }
@@ -267,7 +309,11 @@ impl Panel {
         return new_file;
     }
 
-    pub fn process_command_queue(&mut self) {
+    pub fn process_command_queue(&mut self, config: &Config) -> PanelFrameData {
+        let mut result = PanelFrameData {
+            quit: false,
+            dont_write_stdout: false,
+        };
         if self.queue.len() > 0 {
             let queue = self.queue.drain(..).collect::<Vec<_>>();
             for cmd in queue {
@@ -316,10 +362,58 @@ impl Panel {
                             self.mode = PanelMode::Search(Some(" <no mathces found>".to_string()));
                         }
                     }
+                    CommandKind::Quit => {
+                        result.quit = true;
+                    }
+                    CommandKind::QuitNoSave => {
+                        result.quit = true;
+                        result.dont_write_stdout = true;
+                    }
+                    CommandKind::Untar => {
+                        if let Some(i) = self.table_state.selected() {
+                            _ = self.untar_file(
+                                &self.entries[i].file.clone(),
+                                &self.entries[i].name.clone(),
+                            );
+                        }
+                    }
+                    CommandKind::Unzip => {
+                        if let Some(i) = self.table_state.selected() {
+                            _ = self.unzip_file(
+                                &self.entries[i].file.clone(),
+                                &self.entries[i].name.clone(),
+                            );
+                        }
+                    }
+                    CommandKind::Shell => {
+                        let cmd = &cmd.arg;
+                        if let Some(current_entry) = self.table_state.selected() {
+                            if let Some(selection_start) = self.selection_start {
+                                for i in current_entry.min(selection_start)
+                                    ..=current_entry.max(selection_start)
+                                {
+                                    if let Some(file_path) =
+                                        self.working_directory.join(&self.entries[i].file).to_str()
+                                    {
+                                        self.run_shell_command(config, &cmd, file_path);
+                                    }
+                                }
+                            } else {
+                                if let Some(file_path) = self
+                                    .working_directory
+                                    .join(&self.entries[current_entry].file)
+                                    .to_str()
+                                {
+                                    self.run_shell_command(config, &cmd, file_path);
+                                }
+                            }
+                        }
+                    }
                     CommandKind::Custom(_) => todo!(),
                 }
             }
         }
+        result
     }
 
     pub fn unzip_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
@@ -435,53 +529,12 @@ impl Panel {
                             });
                         }
                         let cmd = self.edit_buffer.trim();
-                        if cmd == "q" {
-                            result.quit = true;
-                            return result;
-                        } else if cmd == "q!" {
-                            result.quit = true;
-                            result.dont_write_stdout = true;
-                            return result;
-                        } else if cmd == "untar" {
-                            if let Some(i) = self.table_state.selected() {
-                                _ = self.untar_file(
-                                    &self.entries[i].file.clone(),
-                                    &self.entries[i].name.clone(),
-                                );
-                            }
-                        } else if cmd == "unzip" {
-                            if let Some(i) = self.table_state.selected() {
-                                _ = self.unzip_file(
-                                    &self.entries[i].file.clone(),
-                                    &self.entries[i].name.clone(),
-                                );
-                            }
-                        } else if cmd.starts_with("sh") && cmd.len() > 2 {
-                            let cmd = cmd[2..].trim();
-                            if let Some(current_entry) = self.table_state.selected() {
-                                let cmd = cmd.to_string();
-                                if let Some(selection_start) = self.selection_start {
-                                    for i in current_entry.min(selection_start)
-                                        ..=current_entry.max(selection_start)
-                                    {
-                                        if let Some(file_path) = self
-                                            .working_directory
-                                            .join(&self.entries[i].file)
-                                            .to_str()
-                                        {
-                                            self.run_shell_command(config, &cmd, file_path);
-                                        }
-                                    }
-                                } else {
-                                    if let Some(file_path) = self
-                                        .working_directory
-                                        .join(&self.entries[current_entry].file)
-                                        .to_str()
-                                    {
-                                        self.run_shell_command(config, &cmd, file_path);
-                                    }
-                                }
-                            }
+                        if let Ok(cmd_kind) = CommandKind::from_str(cmd) {
+                            let arg = cmd[cmd_kind.command().len()..].trim().to_string();
+                            self.queue.push(Command {
+                                kind: cmd_kind,
+                                arg,
+                            })
                         }
                         self.edit_buffer.clear();
                         self.command_prompt = None;

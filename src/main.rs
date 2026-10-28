@@ -139,13 +139,21 @@ fn run<W: ratatui::prelude::Backend>(
         };
 
         if let Event::Key(key_event) = event {
-            let res = window
-                .panel
-                .update(key_event, &mut window.clipboard, &window.config);
+            let (quit, dont_write_stdout) = {
+                let res = window
+                    .panel
+                    .update(key_event, &mut window.clipboard, &window.config);
 
-            window.panel.process_command_queue();
-            if res.quit {
-                if res.dont_write_stdout {
+                let window::PanelFrameData {
+                    quit,
+                    dont_write_stdout,
+                } = window.panel.process_command_queue(&window.config);
+                let quit = res.quit | quit;
+                let dont_write_stdout = res.dont_write_stdout | dont_write_stdout;
+                (quit, dont_write_stdout)
+            };
+            if quit {
+                if dont_write_stdout {
                     return Ok(None);
                 } else {
                     return Ok(Some(window.panel.working_directory.clone()));
