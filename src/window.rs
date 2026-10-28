@@ -20,7 +20,7 @@ pub enum CommandKind {
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
 }
-// NOTE: ! DO NOT FORGET TO ADD VARIANTS TO THIS ARRAY !
+
 const COMMANDS: [CommandKind; 8] = [
     CommandKind::NewFile,
     CommandKind::NewDirectory,
@@ -31,6 +31,20 @@ const COMMANDS: [CommandKind; 8] = [
     CommandKind::Unzip,
     CommandKind::Shell,
 ];
+const _: () = const {
+    // Add the new CommandKind to the global constant COMMANDS array
+    match CommandKind::NewFile {
+        CommandKind::NewFile => (),
+        CommandKind::NewDirectory => (),
+        CommandKind::IncrementalSearch => (),
+        CommandKind::Quit => (),
+        CommandKind::QuitNoSave => (),
+        CommandKind::Untar => (),
+        CommandKind::Unzip => (),
+        CommandKind::Shell => (),
+        CommandKind::Custom(_) => (),
+    }
+};
 
 impl CommandKind {
     pub const fn command(&self) -> &'static str {
@@ -542,13 +556,28 @@ impl Panel {
                     } else if key_event.code == KeyCode::Tab && key_event.is_press() {
                         (|| {
                             let cmd = self.edit_buffer.trim();
-                            for c in COMMANDS {
-                                if cmd.len() < c.command().len() && c.command().starts_with(cmd) {
-                                    self.edit_buffer.clear();
-                                    self.edit_buffer += c.command();
-                                    return;
+                            let is_in_search =
+                                matches!(self.command_prompt, Some(CommandKind::IncrementalSearch));
+                            if !is_in_search {
+                                for c in COMMANDS {
+                                    if cmd.len() < c.command().len() && c.command().starts_with(cmd)
+                                    {
+                                        self.edit_buffer.clear();
+                                        self.edit_buffer += c.command();
+                                        return;
+                                    }
                                 }
                             }
+                            let cmd = {
+                                if let Some(i) = self.table_state.selected() {
+                                    cmd.replace(
+                                        &config.shell_command_placeholder,
+                                        &self.entries[i].name,
+                                    )
+                                } else {
+                                    cmd.to_string()
+                                }
+                            };
                             if let Some(query) = cmd.split_ascii_whitespace().last() {
                                 let query_len = query.chars().count();
                                 let path = PathBuf::from(query);
@@ -563,6 +592,9 @@ impl Panel {
                                                     self.edit_buffer.pop();
                                                 }
                                                 self.edit_buffer += &e.name;
+                                                if !is_in_search && e.file.is_dir() {
+                                                    self.edit_buffer += "/";
+                                                }
                                                 return;
                                             }
                                         }
@@ -594,6 +626,11 @@ impl Panel {
                                                                         self.edit_buffer.pop();
                                                                     }
                                                                     self.edit_buffer += p;
+                                                                    if !is_in_search
+                                                                        && entry.path().is_dir()
+                                                                    {
+                                                                        self.edit_buffer += "/";
+                                                                    }
                                                                 }
                                                                 return;
                                                             }
