@@ -541,14 +541,15 @@ impl Panel {
                                 kind: cmd.clone(),
                                 arg: self.edit_buffer.clone(),
                             });
-                        }
-                        let cmd = self.edit_buffer.trim();
-                        if let Ok(cmd_kind) = CommandKind::from_str(cmd) {
-                            let arg = cmd[cmd_kind.command().len()..].trim().to_string();
-                            self.queue.push(Command {
-                                kind: cmd_kind,
-                                arg,
-                            })
+                        } else {
+                            let cmd = self.edit_buffer.trim();
+                            if let Ok(cmd_kind) = CommandKind::from_str(cmd) {
+                                let arg = cmd[cmd_kind.command().len()..].trim().to_string();
+                                self.queue.push(Command {
+                                    kind: cmd_kind,
+                                    arg,
+                                })
+                            }
                         }
                         self.edit_buffer.clear();
                         self.command_prompt = None;

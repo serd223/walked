@@ -314,7 +314,7 @@ fn run<W: ratatui::prelude::Backend>(
                     f.render_stateful_widget(table, top_area, &mut panel.table_state);
                     if let Some(cmd) = &panel.command_prompt {
                         f.render_widget(
-                            format!("({}) >{}_", cmd.to_string(), panel.edit_buffer),
+                            format!(":{} {}_", cmd.to_string(), panel.edit_buffer),
                             bottom_area,
                         );
                     } else {
