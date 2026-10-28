@@ -29,22 +29,23 @@ const COMMANDS: [CommandKind; 8] = [
     CommandKind::Quit,
     CommandKind::Untar,
     CommandKind::Unzip,
-    CommandKind::Shell,
+    const {
+        // (Exhaustiveness check for CommandKind)
+        // Do not forget to add the newly added variant to this array
+        match CommandKind::NewFile {
+            CommandKind::NewFile => (),
+            CommandKind::NewDirectory => (),
+            CommandKind::IncrementalSearch => (),
+            CommandKind::Quit => (),
+            CommandKind::QuitNoSave => (),
+            CommandKind::Untar => (),
+            CommandKind::Unzip => (),
+            CommandKind::Shell => (),
+            CommandKind::Custom(_) => (),
+        };
+        CommandKind::Shell
+    },
 ];
-const _: () = const {
-    // Add the new CommandKind to the global constant COMMANDS array
-    match CommandKind::NewFile {
-        CommandKind::NewFile => (),
-        CommandKind::NewDirectory => (),
-        CommandKind::IncrementalSearch => (),
-        CommandKind::Quit => (),
-        CommandKind::QuitNoSave => (),
-        CommandKind::Untar => (),
-        CommandKind::Unzip => (),
-        CommandKind::Shell => (),
-        CommandKind::Custom(_) => (),
-    }
-};
 
 impl CommandKind {
     pub const fn command(&self) -> &'static str {
@@ -569,7 +570,7 @@ impl Panel {
                                     }
                                 }
                             }
-                            let cmd = {
+                            let mut cmd = {
                                 if let Some(i) = self.table_state.selected() {
                                     cmd.replace(
                                         &config.shell_command_placeholder,
@@ -590,12 +591,13 @@ impl Panel {
                                                 && query.len() < e.name.len()
                                             {
                                                 for _ in 0..query_len {
-                                                    self.edit_buffer.pop();
+                                                    cmd.pop();
                                                 }
-                                                self.edit_buffer += &e.name;
+                                                cmd += &e.name;
                                                 if !is_in_search && e.file.is_dir() {
-                                                    self.edit_buffer += "/";
+                                                    cmd += "/";
                                                 }
+                                                cmd.clone_into(&mut self.edit_buffer);
                                                 return;
                                             }
                                         }
@@ -624,14 +626,17 @@ impl Panel {
                                                                     entry.path().to_str()
                                                                 {
                                                                     for _ in 0..query_len {
-                                                                        self.edit_buffer.pop();
+                                                                        cmd.pop();
                                                                     }
-                                                                    self.edit_buffer += p;
+                                                                    cmd += p;
                                                                     if !is_in_search
                                                                         && entry.path().is_dir()
                                                                     {
-                                                                        self.edit_buffer += "/";
+                                                                        cmd += "/";
                                                                     }
+                                                                    cmd.clone_into(
+                                                                        &mut self.edit_buffer,
+                                                                    );
                                                                 }
                                                                 return;
                                                             }

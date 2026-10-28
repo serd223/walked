@@ -123,44 +123,17 @@ fn run<W: ratatui::prelude::Backend>(
         config,
     };
 
-    let mut start = true;
+    _ = window.panel.update(
+        event::KeyEvent {
+            code: event::KeyCode::Null,
+            modifiers: event::KeyModifiers::NONE,
+            kind: event::KeyEventKind::Press,
+            state: event::KeyEventState::NONE,
+        },
+        &mut window.clipboard,
+        &window.config,
+    );
     loop {
-        // needed because otherwise the applications hangs until you press a key on startup.
-        // i could just change the order of event processing and drawing, but i am pretty sure that
-        // i made certain assumptions regarding their order of execution while writing this but tbh i dont remember
-        // the spesifics so i feel like this hack is okay
-        let event = {
-            if start {
-                start = false;
-                Event::FocusGained
-            } else {
-                event::read()?
-            }
-        };
-
-        if let Event::Key(key_event) = event {
-            let (quit, dont_write_stdout) = {
-                let res = window
-                    .panel
-                    .update(key_event, &mut window.clipboard, &window.config);
-
-                let window::PanelFrameData {
-                    quit,
-                    dont_write_stdout,
-                } = window.panel.process_command_queue(&window.config);
-                let quit = res.quit | quit;
-                let dont_write_stdout = res.dont_write_stdout | dont_write_stdout;
-                (quit, dont_write_stdout)
-            };
-            if quit {
-                if dont_write_stdout {
-                    return Ok(None);
-                } else {
-                    return Ok(Some(window.panel.working_directory.clone()));
-                }
-            }
-        }
-
         terminal.draw(|f| {
             let area = f.area();
             let panel = &mut window.panel;
@@ -333,6 +306,31 @@ fn run<W: ratatui::prelude::Backend>(
                 }
             }
         })?;
+
+        let event = event::read()?;
+
+        if let Event::Key(key_event) = event {
+            let (quit, dont_write_stdout) = {
+                let res = window
+                    .panel
+                    .update(key_event, &mut window.clipboard, &window.config);
+
+                let window::PanelFrameData {
+                    quit,
+                    dont_write_stdout,
+                } = window.panel.process_command_queue(&window.config);
+                let quit = res.quit | quit;
+                let dont_write_stdout = res.dont_write_stdout | dont_write_stdout;
+                (quit, dont_write_stdout)
+            };
+            if quit {
+                if dont_write_stdout {
+                    return Ok(None);
+                } else {
+                    return Ok(Some(window.panel.working_directory.clone()));
+                }
+            }
+        }
     }
 }
 
