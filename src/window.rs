@@ -13,6 +13,8 @@ pub enum CommandKind {
     NewFile,
     NewDirectory,
     IncrementalSearch,
+    CopySelection,
+    PasteSelection,
     Quit,
     QuitNoSave,
     Untar,
@@ -23,10 +25,12 @@ pub enum CommandKind {
     Custom(String), // NOTE: For future if we need plugins or such
 }
 
-const COMMANDS: [CommandKind; 9] = [
+const COMMANDS: [CommandKind; 11] = [
     CommandKind::NewFile,
     CommandKind::NewDirectory,
     CommandKind::IncrementalSearch,
+    CommandKind::CopySelection,
+    CommandKind::PasteSelection,
     CommandKind::QuitNoSave,
     CommandKind::Quit,
     CommandKind::Untar,
@@ -39,6 +43,8 @@ const COMMANDS: [CommandKind; 9] = [
             CommandKind::NewFile => (),
             CommandKind::NewDirectory => (),
             CommandKind::IncrementalSearch => (),
+            CommandKind::CopySelection => (),
+            CommandKind::PasteSelection => (),
             CommandKind::Quit => (),
             CommandKind::QuitNoSave => (),
             CommandKind::Untar => (),
@@ -57,6 +63,8 @@ impl CommandKind {
             CommandKind::NewFile => "new-file",
             CommandKind::NewDirectory => "new-directory",
             CommandKind::IncrementalSearch => "incremental-search",
+            CommandKind::CopySelection => "copy",
+            CommandKind::PasteSelection => "paste",
             CommandKind::Quit => "q",
             CommandKind::QuitNoSave => "q!",
             CommandKind::Untar => "untar",
@@ -290,6 +298,12 @@ impl Window {
                             self.mode = WindowMode::Search(Some(" <no mathces found>".to_string()));
                         }
                     }
+                    CommandKind::CopySelection => {
+                        self.try_copy_selection();
+                    }
+                    CommandKind::PasteSelection => {
+                        self.try_paste_selection();
+                    }
                     CommandKind::Quit => {
                         result.quit = true;
                     }
@@ -441,6 +455,82 @@ impl Window {
                 self.errors
                     .push(WalkedError::Message(format!("ERROR: {err}")));
             }
+        }
+    }
+
+    pub fn try_copy_selection(&mut self) {
+        if self.entries.len() > 0 {
+            if let Some(current_entry) = self.table_state.selected() {
+                self.reset_clipboard();
+                if let Some(selection_start) = self.selection_start {
+                    for i in current_entry.min(selection_start)..=current_entry.max(selection_start)
+                    {
+                        if self.entries[i].name != ".." && self.entries[i].name != "." {
+                            self.push_to_clipboard(self.entries[i].file.clone());
+                        }
+                    }
+                } else {
+                    if self.entries[current_entry].name != ".."
+                        && self.entries[current_entry].name != "."
+                    {
+                        self.push_to_clipboard(self.entries[current_entry].file.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn try_paste_selection(&mut self) {
+        let mut refresh = false;
+        for entry_path in self.clone_clipboard() {
+            let new_entry_path =
+                new_path(self.working_directory.join(entry_path.file_name().unwrap()));
+
+            if entry_path.is_file() {
+                if let Err(err) = std::fs::copy(&entry_path, &new_entry_path) {
+                    match err.kind() {
+                        std::io::ErrorKind::NotFound => {
+                            self.errors.push(WalkedError::PathNotFound {
+                                path: entry_path.clone(),
+                                path_kind: PathKind::File,
+                            })
+                        }
+                        std::io::ErrorKind::PermissionDenied => {
+                            self.errors.push(WalkedError::PermissionDenied {
+                                path: new_entry_path,
+                                path_kind: PathKind::File,
+                            })
+                        }
+                        _ => self.errors.push(WalkedError::Message(format!(
+                            "Couldn't copy file from '{}' to '{}'",
+                            entry_path.display(),
+                            new_entry_path.display()
+                        ))),
+                    }
+                }
+                refresh = true;
+            } else if entry_path.is_dir() {
+                if let Err(err) = std::fs::create_dir(&new_entry_path) {
+                    match err.kind() {
+                        std::io::ErrorKind::PermissionDenied => {
+                            self.errors.push(WalkedError::PermissionDenied {
+                                path: new_entry_path,
+                                path_kind: PathKind::Dir,
+                            })
+                        }
+                        _ => self.errors.push(WalkedError::Message(format!(
+                            "Couldn't create directory '{}'",
+                            new_entry_path.display()
+                        ))),
+                    }
+                } else {
+                    copy_recursively(&entry_path, &new_entry_path, &mut self.errors);
+                }
+                refresh = true;
+            }
+        }
+        if refresh {
+            self.read_working_dir();
         }
     }
 
@@ -816,83 +906,9 @@ impl Window {
                             }
                         }
                     } else if key_event == self.config.copy && self.entries.len() > 0 {
-                        if let Some(current_entry) = self.table_state.selected() {
-                            self.reset_clipboard();
-                            if let Some(selection_start) = self.selection_start {
-                                for i in current_entry.min(selection_start)
-                                    ..=current_entry.max(selection_start)
-                                {
-                                    if self.entries[i].name != ".." && self.entries[i].name != "." {
-                                        self.push_to_clipboard(self.entries[i].file.clone());
-                                    }
-                                }
-                            } else {
-                                if self.entries[current_entry].name != ".."
-                                    && self.entries[current_entry].name != "."
-                                {
-                                    self.push_to_clipboard(
-                                        self.entries[current_entry].file.clone(),
-                                    );
-                                }
-                            }
-                        }
+                        self.try_copy_selection();
                     } else if key_event == self.config.paste {
-                        let mut refresh = false;
-                        for entry_path in self.clone_clipboard() {
-                            let new_entry_path = new_path(
-                                self.working_directory.join(entry_path.file_name().unwrap()),
-                            );
-
-                            if entry_path.is_file() {
-                                if let Err(err) = std::fs::copy(&entry_path, &new_entry_path) {
-                                    match err.kind() {
-                                        std::io::ErrorKind::NotFound => {
-                                            self.errors.push(WalkedError::PathNotFound {
-                                                path: entry_path.clone(),
-                                                path_kind: PathKind::File,
-                                            })
-                                        }
-                                        std::io::ErrorKind::PermissionDenied => {
-                                            self.errors.push(WalkedError::PermissionDenied {
-                                                path: new_entry_path,
-                                                path_kind: PathKind::File,
-                                            })
-                                        }
-                                        _ => self.errors.push(WalkedError::Message(format!(
-                                            "Couldn't copy file from '{}' to '{}'",
-                                            entry_path.display(),
-                                            new_entry_path.display()
-                                        ))),
-                                    }
-                                }
-                                refresh = true;
-                            } else if entry_path.is_dir() {
-                                if let Err(err) = std::fs::create_dir(&new_entry_path) {
-                                    match err.kind() {
-                                        std::io::ErrorKind::PermissionDenied => {
-                                            self.errors.push(WalkedError::PermissionDenied {
-                                                path: new_entry_path,
-                                                path_kind: PathKind::Dir,
-                                            })
-                                        }
-                                        _ => self.errors.push(WalkedError::Message(format!(
-                                            "Couldn't create directory '{}'",
-                                            new_entry_path.display()
-                                        ))),
-                                    }
-                                } else {
-                                    copy_recursively(
-                                        &entry_path,
-                                        &new_entry_path,
-                                        &mut self.errors,
-                                    );
-                                }
-                                refresh = true;
-                            }
-                        }
-                        if refresh {
-                            self.read_working_dir();
-                        }
+                        self.try_paste_selection();
                     } else if key_event == self.config.remove && self.entries.len() > 0 {
                         if let Some(current_entry) = self.table_state.selected() {
                             let selection_start =
