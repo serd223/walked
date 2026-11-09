@@ -1,6 +1,8 @@
 # walked
 Simple terminal file manager
 
+![walked demo gif](./github/walked-demo.gif)
+
 # Features
 `walked` can:
  - Navigate through the filesystem
