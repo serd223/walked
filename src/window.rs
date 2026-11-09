@@ -17,12 +17,13 @@ pub enum CommandKind {
     QuitNoSave,
     Untar,
     Unzip,
+    ShellQuiet,
     Shell,
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
 }
 
-const COMMANDS: [CommandKind; 8] = [
+const COMMANDS: [CommandKind; 9] = [
     CommandKind::NewFile,
     CommandKind::NewDirectory,
     CommandKind::IncrementalSearch,
@@ -30,6 +31,7 @@ const COMMANDS: [CommandKind; 8] = [
     CommandKind::Quit,
     CommandKind::Untar,
     CommandKind::Unzip,
+    CommandKind::ShellQuiet,
     const {
         // (Exhaustiveness check for CommandKind)
         // Do not forget to add the newly added variant to this array
@@ -41,6 +43,7 @@ const COMMANDS: [CommandKind; 8] = [
             CommandKind::QuitNoSave => (),
             CommandKind::Untar => (),
             CommandKind::Unzip => (),
+            CommandKind::ShellQuiet => (),
             CommandKind::Shell => (),
             CommandKind::Custom(_) => (),
         };
@@ -58,6 +61,7 @@ impl CommandKind {
             CommandKind::QuitNoSave => "q!",
             CommandKind::Untar => "untar",
             CommandKind::Unzip => "unzip",
+            CommandKind::ShellQuiet => "sh!",
             CommandKind::Shell => "sh",
             CommandKind::Custom(_) => panic!("Custom commands do not have static command names"),
         }
@@ -94,6 +98,7 @@ pub struct Command {
 }
 
 pub struct Window {
+    pub do_tmux: bool,
     pub errors: Vec<WalkedError>,
     pub table_state: TableState,
     pub mode: WindowMode,
@@ -129,7 +134,19 @@ impl Window {
             crate::config::ClipboardType::File(s) => Some(PathBuf::from(s)),
             crate::config::ClipboardType::InMemory => None,
         };
+        let do_tmux = match config.tmux_integration {
+            crate::config::TmuxIntegration::FromEnv => {
+                if let Ok(s) = std::env::var("TMUX") {
+                    s.trim().len() > 0
+                } else {
+                    false
+                }
+            }
+            crate::config::TmuxIntegration::Always => true,
+            crate::config::TmuxIntegration::Never => false,
+        };
         let mut panel = Self {
+            do_tmux,
             errors: Vec::new(),
             table_state: TableState::default(),
             mode: WindowMode::Normal,
@@ -296,7 +313,8 @@ impl Window {
                             );
                         }
                     }
-                    CommandKind::Shell => {
+                    CommandKind::Shell | CommandKind::ShellQuiet => {
+                        let quiet = matches!(cmd.kind, CommandKind::ShellQuiet);
                         let cmd = &cmd.arg;
                         if let Some(current_entry) = self.table_state.selected() {
                             if let Some(selection_start) = self.selection_start {
@@ -306,7 +324,7 @@ impl Window {
                                     if let Some(file_path) =
                                         self.working_directory.join(&self.entries[i].file).to_str()
                                     {
-                                        self.run_shell_command(&cmd, file_path);
+                                        self.run_shell_command(&cmd, file_path, quiet);
                                     }
                                 }
                             } else {
@@ -315,7 +333,7 @@ impl Window {
                                     .join(&self.entries[current_entry].file)
                                     .to_str()
                                 {
-                                    self.run_shell_command(&cmd, file_path);
+                                    self.run_shell_command(&cmd, file_path, quiet);
                                 }
                             }
                         }
@@ -387,28 +405,41 @@ impl Window {
         ok
     }
 
-    pub fn run_shell_command(&mut self, cmd: &str, file_path: &str) {
-        {
-            let cmd = cmd.replace(&self.config.shell_command_placeholder, file_path);
-            match std::process::Command::new("/bin/sh")
-                .current_dir(&self.working_directory)
-                .arg("-c")
+    pub fn run_shell_command(&mut self, cmd: &str, file_path: &str, quiet: bool) {
+        let cmd = cmd.replace(&self.config.shell_command_placeholder, file_path);
+        if self.do_tmux && !quiet {
+            let mut proc = std::process::Command::new("tmux");
+            proc.current_dir(&self.working_directory);
+            for a in &self.config.tmux_display_popup_command {
+                proc.arg(a);
+            }
+            _ = proc
+                .arg("-d")
+                .arg(&self.working_directory)
                 .arg(cmd)
-                .output()
-            {
-                Ok(out) => {
-                    if let Ok(out) = std::str::from_utf8(&out.stdout) {
-                        if out.len() > 0 {
-                            self.errors.push(WalkedError::Message(out.to_string()));
-                        }
-                        self.read_working_dir();
-                        self.refresh_cursor();
+                .output();
+            self.read_working_dir();
+            self.refresh_cursor();
+            return;
+        }
+        match std::process::Command::new("/bin/sh")
+            .current_dir(&self.working_directory)
+            .arg("-c")
+            .arg(cmd)
+            .output()
+        {
+            Ok(out) => {
+                if let Ok(out) = std::str::from_utf8(&out.stdout) {
+                    if !quiet && out.len() > 0 {
+                        self.errors.push(WalkedError::Message(out.to_string()));
                     }
+                    self.read_working_dir();
+                    self.refresh_cursor();
                 }
-                Err(err) => {
-                    self.errors
-                        .push(WalkedError::Message(format!("ERROR: {err}")));
-                }
+            }
+            Err(err) => {
+                self.errors
+                    .push(WalkedError::Message(format!("ERROR: {err}")));
             }
         }
     }

@@ -7,7 +7,15 @@ pub enum ClipboardType {
     InMemory,
 }
 
+pub enum TmuxIntegration {
+    FromEnv,
+    Always,
+    Never,
+}
+
 pub struct Config {
+    pub tmux_integration: TmuxIntegration,
+    pub tmux_display_popup_command: Vec<String>,
     pub clipboard_file: ClipboardType,
     pub normal_mode_text: String,
     pub search_mode_text: String,
@@ -43,6 +51,14 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
+            tmux_integration: TmuxIntegration::FromEnv,
+            tmux_display_popup_command: vec![
+                "display-popup".to_string(),
+                "-w".to_string(),
+                "70%".to_string(),
+                "-h".to_string(),
+                "70%".to_string(),
+            ],
             clipboard_file: ClipboardType::TemporaryFile,
             show_working_directory: true,
             simple_working_directory: false,
@@ -267,12 +283,31 @@ impl Config {
         } else if s == "Esc" {
             Some(KeyCode::Esc)
         } else {
+            // TODO: Proper error reporting for malformed config
             // TODO: maybe support more keycodes?
             None
         }
     }
 
     pub fn from_toml(&mut self, toml: Value) {
+        if let Some(v) = toml.get("tmux_integration") {
+            if let Some(v) = v.as_str() {
+                match v {
+                    "env" => self.tmux_integration = TmuxIntegration::FromEnv,
+                    "always" => self.tmux_integration = TmuxIntegration::Always,
+                    "never" => self.tmux_integration = TmuxIntegration::Never,
+                    _ => (), // TODO: Proper error reporting for malformed config
+                }
+            }
+        }
+        if let Some(v) = toml.get("tmux_display_popup_command") {
+            if let Some(v) = v.as_str() {
+                self.tmux_display_popup_command.clear();
+                for v in v.split_whitespace() {
+                    self.tmux_display_popup_command.push(v.to_string());
+                }
+            }
+        }
         if let Some(v) = toml.get("clipboard_file") {
             if let Some(v) = v.as_str() {
                 if v == "none" {
