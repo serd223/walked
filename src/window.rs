@@ -2,6 +2,7 @@ use crate::{PathKind, WalkedError, config::Config};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::widgets::TableState;
 use std::{
+    fs,
     ops::{Index, IndexMut},
     path::{Path, PathBuf},
     str::FromStr,
@@ -93,13 +94,1045 @@ pub struct Command {
 }
 
 pub struct Window {
-    pub panel: Panel,
-    pub clipboard: Vec<PathBuf>,
+    pub errors: Vec<WalkedError>,
+    pub table_state: TableState,
+    pub mode: WindowMode,
+    pub left: u16,
+    pub top: u16,
+    pub bottom: u16,
+    pub entries: Vec<LsEntry>,
+    pub incremental_search_results: Vec<usize>,
+    pub current_incremental_search_result: usize,
+    pub working_directory: PathBuf,
+    pub edit_buffer: String,
+    pub cursor_offset: u16,
+    pub current_entry_length: usize,
+    pub selection_start: Option<usize>,
+    pub queue: Vec<Command>,
+    pub command_prompt: Option<CommandKind>,
+    pub clipboard_file: Option<PathBuf>,
+    pub in_memory_clipboard: Vec<PathBuf>,
     pub config: Config,
 }
 
+pub struct WindowFrameStep {
+    pub quit: bool,
+    pub dont_write_stdout: bool,
+}
+
+impl Window {
+    pub fn new(config: Config, current_dir: PathBuf) -> Self {
+        let clipboard_file = match &config.clipboard_file {
+            crate::config::ClipboardType::TemporaryFile => {
+                Some(std::env::temp_dir().join(".walked.clipboard.txt"))
+            }
+            crate::config::ClipboardType::File(s) => Some(PathBuf::from(s)),
+            crate::config::ClipboardType::InMemory => None,
+        };
+        let mut panel = Self {
+            errors: Vec::new(),
+            table_state: TableState::default(),
+            mode: WindowMode::Normal,
+            left: 2,
+            top: 2,
+            bottom: 1,
+            working_directory: current_dir,
+            entries: vec![],
+            incremental_search_results: vec![],
+            current_incremental_search_result: 0,
+            edit_buffer: String::new(),
+            cursor_offset: 0,
+            current_entry_length: 0,
+            selection_start: None,
+            queue: Vec::new(),
+            command_prompt: None,
+            clipboard_file,
+            in_memory_clipboard: vec![],
+            config,
+        };
+        panel.read_working_dir();
+        panel.table_state.select_first();
+        panel.table_state.select_column(Some(6));
+        panel.refresh_cursor();
+        panel
+    }
+    pub fn prompt(&mut self, cmd: CommandKind) {
+        self.mode = WindowMode::Prompt;
+        self.command_prompt = Some(cmd);
+        self.edit_buffer.clear();
+    }
+
+    pub fn new_dir_with_name(&mut self, dir_name: &str) -> PathBuf {
+        let new_dir = new_path(self.working_directory.join(dir_name));
+        if let Err(err) = std::fs::create_dir(&new_dir) {
+            match err.kind() {
+                std::io::ErrorKind::PermissionDenied => {
+                    self.errors.push(WalkedError::PermissionDenied {
+                        path: new_dir.clone(),
+                        path_kind: PathKind::Dir,
+                    })
+                }
+                _ => self.errors.push(WalkedError::Message(format!(
+                    "Couldn't create directory '{}'",
+                    new_dir.display()
+                ))),
+            }
+        } else {
+            self.read_working_dir();
+
+            for (i, entry) in self.entries.iter().enumerate() {
+                if entry.file == new_dir {
+                    self.table_state.select(Some(i));
+                    self.cursor_offset = 0;
+                    self.table_state.select_column(Some(6));
+                }
+            }
+        }
+        return new_dir;
+    }
+
+    pub fn new_file_with_name(&mut self, file_name: &str) -> PathBuf {
+        let new_file = new_path(self.working_directory.join(file_name));
+        if let Err(err) = std::fs::File::create(&new_file) {
+            match err.kind() {
+                std::io::ErrorKind::PermissionDenied => {
+                    self.errors.push(WalkedError::PermissionDenied {
+                        path: new_file.clone(),
+                        path_kind: PathKind::File,
+                    })
+                }
+                _ => self.errors.push(WalkedError::Message(format!(
+                    "Couldn't create file '{}'",
+                    new_file.display()
+                ))),
+            }
+        } else {
+            self.read_working_dir();
+
+            for (i, entry) in self.entries.iter().enumerate() {
+                if entry.file == new_file {
+                    self.table_state.select(Some(i));
+                    self.cursor_offset = 0;
+                    self.table_state.select_column(Some(6));
+                }
+            }
+        }
+        return new_file;
+    }
+
+    pub fn process_command_queue(&mut self) -> WindowFrameStep {
+        let mut result = WindowFrameStep {
+            quit: false,
+            dont_write_stdout: false,
+        };
+        if self.queue.len() > 0 {
+            let queue = self.queue.drain(..).collect::<Vec<_>>();
+            for cmd in queue {
+                match cmd.kind {
+                    CommandKind::NewFile => {
+                        self.new_file_with_name(&cmd.arg);
+                    }
+                    CommandKind::NewDirectory => {
+                        self.new_dir_with_name(&cmd.arg);
+                    }
+                    CommandKind::IncrementalSearch => {
+                        self.incremental_search_results.clear();
+                        for (i, entry) in self.entries.iter().enumerate() {
+                            if entry.name.to_lowercase().contains(&cmd.arg.to_lowercase()) {
+                                self.incremental_search_results.push(i);
+                            }
+                        }
+                        if self.incremental_search_results.len() > 0 {
+                            if let Some(selected) = self.table_state.selected() {
+                                if let Some((result_index, &entry_index)) = self
+                                    .incremental_search_results
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, i)| **i >= selected)
+                                {
+                                    self.table_state.select(Some(entry_index));
+                                    self.current_incremental_search_result = result_index;
+                                    self.cursor_offset = 0;
+                                    self.table_state.select_column(Some(6));
+                                } else {
+                                    self.current_incremental_search_result = 0;
+                                    self.table_state
+                                        .select(Some(self.incremental_search_results[0]));
+                                    self.cursor_offset = 0;
+                                    self.table_state.select_column(Some(6));
+                                }
+                            }
+                            if self.incremental_search_results.len() > 1 {
+                                self.mode = WindowMode::Search(Some(format!(
+                                    " \"{}\" ({} results) ",
+                                    cmd.arg,
+                                    self.incremental_search_results.len()
+                                )));
+                            }
+                        } else {
+                            self.mode = WindowMode::Search(Some(" <no mathces found>".to_string()));
+                        }
+                    }
+                    CommandKind::Quit => {
+                        result.quit = true;
+                    }
+                    CommandKind::QuitNoSave => {
+                        result.quit = true;
+                        result.dont_write_stdout = true;
+                    }
+                    CommandKind::Untar => {
+                        if let Some(i) = self.table_state.selected() {
+                            _ = self.untar_file(
+                                &self.entries[i].file.clone(),
+                                &self.entries[i].name.clone(),
+                            );
+                        }
+                    }
+                    CommandKind::Unzip => {
+                        if let Some(i) = self.table_state.selected() {
+                            _ = self.unzip_file(
+                                &self.entries[i].file.clone(),
+                                &self.entries[i].name.clone(),
+                            );
+                        }
+                    }
+                    CommandKind::Shell => {
+                        let cmd = &cmd.arg;
+                        if let Some(current_entry) = self.table_state.selected() {
+                            if let Some(selection_start) = self.selection_start {
+                                for i in current_entry.min(selection_start)
+                                    ..=current_entry.max(selection_start)
+                                {
+                                    if let Some(file_path) =
+                                        self.working_directory.join(&self.entries[i].file).to_str()
+                                    {
+                                        self.run_shell_command(&cmd, file_path);
+                                    }
+                                }
+                            } else {
+                                if let Some(file_path) = self
+                                    .working_directory
+                                    .join(&self.entries[current_entry].file)
+                                    .to_str()
+                                {
+                                    self.run_shell_command(&cmd, file_path);
+                                }
+                            }
+                        }
+                    }
+                    CommandKind::Custom(_) => todo!(),
+                }
+            }
+        }
+        result
+    }
+
+    pub fn unzip_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
+        let mut ok = false;
+        let p = p.as_ref();
+        if p.is_file() {
+            let out_dir = self.new_dir_with_name(dir);
+            if let Ok(_) = std::process::Command::new("unzip")
+                .current_dir(&self.working_directory)
+                .arg("-q")
+                .arg(p)
+                .arg("-d")
+                .arg(out_dir)
+                .output()
+            {
+                ok = true;
+            }
+        }
+        if !ok {
+            if let Some(file_name) = p.to_str() {
+                self.errors.push(WalkedError::Message(format!(
+                    "Couldn't unzip file '{}'",
+                    file_name
+                )));
+            } else {
+                self.errors
+                    .push(WalkedError::Message("Couldn't unzip file".to_string()));
+            }
+        }
+        ok
+    }
+
+    pub fn untar_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
+        let mut ok = false;
+        let p = p.as_ref();
+        if p.is_file() {
+            let out_dir = self.new_dir_with_name(dir);
+            if let Ok(_) = std::process::Command::new("tar")
+                .current_dir(&self.working_directory)
+                .arg("-xf")
+                .arg(p)
+                .arg("-C")
+                .arg(out_dir)
+                .output()
+            {
+                ok = true;
+            }
+        }
+        if !ok {
+            if let Some(file_name) = p.to_str() {
+                self.errors.push(WalkedError::Message(format!(
+                    "Couldn't untar file '{}'",
+                    file_name
+                )));
+            } else {
+                self.errors
+                    .push(WalkedError::Message("Couldn't untar file".to_string()));
+            }
+        }
+        ok
+    }
+
+    pub fn run_shell_command(&mut self, cmd: &str, file_path: &str) {
+        {
+            let cmd = cmd.replace(&self.config.shell_command_placeholder, file_path);
+            match std::process::Command::new("/bin/sh")
+                .current_dir(&self.working_directory)
+                .arg("-c")
+                .arg(cmd)
+                .output()
+            {
+                Ok(out) => {
+                    if let Ok(out) = std::str::from_utf8(&out.stdout) {
+                        if out.len() > 0 {
+                            self.errors.push(WalkedError::Message(out.to_string()));
+                        }
+                        self.read_working_dir();
+                        self.refresh_cursor();
+                    }
+                }
+                Err(err) => {
+                    self.errors
+                        .push(WalkedError::Message(format!("ERROR: {err}")));
+                }
+            }
+        }
+    }
+
+    pub fn reset_clipboard(&mut self) {
+        match &self.clipboard_file {
+            Some(p) => {
+                _ = fs::File::create(p);
+            }
+            None => self.in_memory_clipboard.clear(),
+        };
+    }
+
+    pub fn push_to_clipboard(&mut self, p: impl AsRef<Path>) {
+        match &self.clipboard_file {
+            Some(clipboard) => {
+                let mut opt = fs::File::options();
+                opt.append(true);
+                use std::io::Write;
+                if let Ok(mut f) = opt.open(clipboard) {
+                    if let Some(s) = p.as_ref().as_os_str().to_str() {
+                        _ = write!(f, "{s}\n");
+                    }
+                }
+            }
+            None => self.in_memory_clipboard.push(p.as_ref().to_path_buf()),
+        };
+    }
+
+    pub fn clone_clipboard(&mut self) -> Vec<PathBuf> {
+        match &self.clipboard_file {
+            Some(clipboard) => {
+                let mut result = vec![];
+                if let Ok(contents) = std::fs::read_to_string(clipboard) {
+                    for l in contents.lines() {
+                        if !l.is_empty() {
+                            result.push(PathBuf::from(l));
+                        }
+                    }
+                }
+
+                result
+            }
+            None => self.in_memory_clipboard.clone(),
+        }
+    }
+
+    /// Returns false if quit was pressed
+    pub fn update(&mut self, key_event: KeyEvent) -> WindowFrameStep {
+        let mut result = WindowFrameStep {
+            quit: false,
+            dont_write_stdout: false,
+        };
+
+        if self.errors.len() > 0 {
+            if key_event.kind == KeyEventKind::Press {
+                self.errors.clear();
+            }
+        } else {
+            match self.mode {
+                WindowMode::Prompt => {
+                    if key_event.code == KeyCode::Enter && key_event.is_press() {
+                        if let Some(cmd) = &self.command_prompt {
+                            self.queue.push(Command {
+                                kind: cmd.clone(),
+                                arg: self.edit_buffer.clone(),
+                            });
+                        } else {
+                            let cmd = self.edit_buffer.trim();
+                            if let Ok(cmd_kind) = CommandKind::from_str(cmd) {
+                                let arg = cmd[cmd_kind.command().len()..].trim().to_string();
+                                self.queue.push(Command {
+                                    kind: cmd_kind,
+                                    arg,
+                                })
+                            }
+                        }
+                        self.edit_buffer.clear();
+                        self.command_prompt = None;
+                        self.mode = WindowMode::Normal;
+                    } else if key_event.code == KeyCode::Tab && key_event.is_press() {
+                        (|| {
+                            let cmd = self.edit_buffer.trim();
+                            let is_in_search =
+                                matches!(self.command_prompt, Some(CommandKind::IncrementalSearch));
+                            if !is_in_search {
+                                for c in COMMANDS {
+                                    if cmd.len() < c.command().len() && c.command().starts_with(cmd)
+                                    {
+                                        self.edit_buffer.clear();
+                                        self.edit_buffer += c.command();
+                                        return;
+                                    }
+                                }
+                            }
+                            let mut cmd = {
+                                if let Some(i) = self.table_state.selected() {
+                                    cmd.replace(
+                                        &self.config.shell_command_placeholder,
+                                        &self.entries[i].name,
+                                    )
+                                } else {
+                                    cmd.to_string()
+                                }
+                            };
+                            if let Some(query) = cmd.split_ascii_whitespace().last() {
+                                let query_len = query.chars().count();
+                                let path = PathBuf::from(query);
+                                let parent = path.parent();
+                                if let Some(parent) = parent {
+                                    if parent == Path::new("") {
+                                        for e in self.entries.iter() {
+                                            if e.name.starts_with(query)
+                                                && query.len() < e.name.len()
+                                            {
+                                                for _ in 0..query_len {
+                                                    cmd.pop();
+                                                }
+                                                cmd += &e.name;
+                                                if !is_in_search && e.file.is_dir() {
+                                                    cmd += "/";
+                                                }
+                                                cmd.clone_into(&mut self.edit_buffer);
+                                                return;
+                                            }
+                                        }
+                                    } else {
+                                        let name = {
+                                            if let Some(name) = path.file_name() {
+                                                if let Some(name) = name.to_str() {
+                                                    name
+                                                } else {
+                                                    return;
+                                                }
+                                            } else {
+                                                return;
+                                            }
+                                        };
+                                        if parent.exists() && parent.is_dir() {
+                                            if let Ok(dir_contents) = parent.read_dir() {
+                                                for entry in dir_contents {
+                                                    if let Ok(entry) = entry {
+                                                        if let Some(d) = entry.file_name().to_str()
+                                                        {
+                                                            if d.starts_with(name)
+                                                                && name.len() < d.len()
+                                                            {
+                                                                if let Some(p) =
+                                                                    entry.path().to_str()
+                                                                {
+                                                                    for _ in 0..query_len {
+                                                                        cmd.pop();
+                                                                    }
+                                                                    cmd += p;
+                                                                    if !is_in_search
+                                                                        && entry.path().is_dir()
+                                                                    {
+                                                                        cmd += "/";
+                                                                    }
+                                                                    cmd.clone_into(
+                                                                        &mut self.edit_buffer,
+                                                                    );
+                                                                }
+                                                                return;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        })();
+                    } else if key_event.code == KeyCode::Esc && key_event.is_press() {
+                        self.edit_buffer.clear();
+                        self.command_prompt = None;
+                        self.mode = WindowMode::Normal;
+                    } else if key_event.code == KeyCode::Backspace && key_event.is_press() {
+                        self.edit_buffer.pop();
+                    } else if let KeyCode::Char(c) = key_event.code
+                        && key_event.is_press()
+                    {
+                        self.edit_buffer.push(c);
+                    }
+                }
+                WindowMode::Search(_) => {
+                    if key_event == self.config.quit {
+                        result.quit = true;
+                        return result;
+                    } else if key_event.code == KeyCode::Esc {
+                        self.mode = WindowMode::Normal;
+                    } else if key_event == self.config.dir_walk {
+                        if self.walk(
+                            self.incremental_search_results[self.current_incremental_search_result],
+                        ) {
+                            self.table_state.select_first();
+                            self.refresh_cursor();
+                            self.mode = WindowMode::Normal;
+                        }
+                    } else if key_event == self.config.next_search_result
+                        && self.incremental_search_results.len() > 0
+                    {
+                        if self.current_incremental_search_result + 1
+                            >= self.incremental_search_results.len()
+                        {
+                            self.current_incremental_search_result = 0;
+                        } else {
+                            self.current_incremental_search_result += 1;
+                        }
+                        self.table_state.select(Some(
+                            self.incremental_search_results[self.current_incremental_search_result],
+                        ));
+                        self.cursor_offset = 0;
+                        self.table_state.select_column(Some(6));
+                    } else if key_event == self.config.prev_search_result
+                        && self.incremental_search_results.len() > 0
+                    {
+                        if self.current_incremental_search_result <= 0 {
+                            self.current_incremental_search_result =
+                                self.incremental_search_results.len() - 1;
+                        } else {
+                            self.current_incremental_search_result -= 1;
+                        }
+                        self.table_state.select(Some(
+                            self.incremental_search_results[self.current_incremental_search_result],
+                        ));
+                        self.cursor_offset = 0;
+                        self.table_state.select_column(Some(6));
+                    }
+                }
+                WindowMode::Normal => {
+                    if key_event == self.config.dir_walk {
+                        if let Some(i) = self.table_state.selected() {
+                            if self.walk(i) {
+                                self.table_state.select_first();
+                                self.table_state.select_column(Some(6));
+                                self.refresh_cursor();
+                            }
+                        }
+                    } else if key_event == self.config.dir_up {
+                        if self.parent() {
+                            self.table_state.select_first();
+                            self.table_state.select_column(Some(6));
+                            self.refresh_cursor();
+                        }
+                    } else if key_event == self.config.up {
+                        self.selection_start = None;
+                        self.table_state.scroll_up_by(1);
+                        self.refresh_cursor();
+                    } else if key_event == self.config.select_up {
+                        if let None = self.selection_start {
+                            self.selection_start = self.table_state.selected();
+                        }
+                        self.table_state.scroll_up_by(1);
+                        self.refresh_cursor();
+                    } else if key_event == self.config.down {
+                        self.selection_start = None;
+                        self.table_state.scroll_down_by(1);
+                        self.refresh_cursor();
+                    } else if key_event == self.config.select_down {
+                        if let None = self.selection_start {
+                            self.selection_start = self.table_state.selected();
+                        }
+                        self.table_state.scroll_down_by(1);
+                        self.refresh_cursor();
+                    } else if key_event == self.config.left {
+                        if self.cursor_offset > 0 {
+                            self.cursor_offset -= 1;
+                        } else {
+                            let col = self.table_state.selected_column().unwrap_or(6);
+                            if col > 0 {
+                                let new_col = col - 1;
+                                self.table_state.select_column(Some(new_col));
+                                self.refresh_cursor();
+                            }
+                        }
+                    } else if key_event == self.config.column_left {
+                        let col = self.table_state.selected_column().unwrap_or(6);
+                        if col > 0 {
+                            let new_col = col - 1;
+                            self.table_state.select_column(Some(new_col));
+                            self.refresh_cursor();
+                        }
+                    } else if key_event == self.config.right {
+                        if self.cursor_offset < self.current_entry_length as u16 {
+                            self.cursor_offset += 1;
+                        } else {
+                            let col = self.table_state.selected_column().unwrap_or(6);
+                            if col < 6 {
+                                let new_col = col + 1;
+                                self.table_state.select_column(Some(new_col));
+                                self.refresh_cursor();
+                                self.cursor_offset = 0;
+                            }
+                        }
+                    } else if key_event == self.config.column_right {
+                        let col = self.table_state.selected_column().unwrap_or(6);
+                        if col < 6 {
+                            let new_col = col + 1;
+                            self.table_state.select_column(Some(new_col));
+                            self.refresh_cursor();
+                        }
+                    } else if key_event == self.config.incremental_search {
+                        self.prompt(CommandKind::IncrementalSearch);
+                    } else if key_event == self.config.new_file {
+                        self.prompt(CommandKind::NewFile);
+                    } else if key_event == self.config.new_directory {
+                        self.prompt(CommandKind::NewDirectory);
+                    } else if key_event == self.config.duplicate && self.entries.len() > 0 {
+                        if let Some(current_entry) = self.table_state.selected() {
+                            let selection_start =
+                                if let Some(selection_start) = self.selection_start {
+                                    self.selection_start = None;
+                                    selection_start
+                                } else {
+                                    current_entry
+                                };
+                            let mut refresh = false;
+
+                            for i in current_entry.min(selection_start)
+                                ..=current_entry.max(selection_start)
+                            {
+                                let entry = &self.entries[i];
+                                let new_entry_path = new_path(&entry.file);
+
+                                if entry.file.is_file() {
+                                    if let Err(err) = std::fs::copy(&entry.file, &new_entry_path) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::NotFound => {
+                                                self.errors.push(WalkedError::PathNotFound {
+                                                    path: entry.file.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                self.errors.push(WalkedError::PermissionDenied {
+                                                    path: new_entry_path,
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            _ => self.errors.push(WalkedError::Message(format!(
+                                                "Couldn't copy file from '{}' to '{}'",
+                                                entry.name,
+                                                new_entry_path.display()
+                                            ))),
+                                        }
+                                    }
+
+                                    refresh = true;
+                                } else if entry.file.is_dir() {
+                                    let new_dir = new_path(&entry.file);
+                                    if let Err(err) = std::fs::create_dir(&new_dir) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                self.errors.push(WalkedError::PermissionDenied {
+                                                    path: new_dir,
+                                                    path_kind: PathKind::Dir,
+                                                })
+                                            }
+                                            _ => self.errors.push(WalkedError::Message(format!(
+                                                "Couldn't create directory '{}'",
+                                                new_dir.display()
+                                            ))),
+                                        }
+                                    } else {
+                                        copy_recursively(&entry.file, &new_dir, &mut self.errors);
+                                    }
+                                    refresh = true;
+                                }
+                            }
+                            if refresh {
+                                self.read_working_dir();
+                            }
+                        }
+                    } else if key_event == self.config.copy && self.entries.len() > 0 {
+                        if let Some(current_entry) = self.table_state.selected() {
+                            self.reset_clipboard();
+                            if let Some(selection_start) = self.selection_start {
+                                for i in current_entry.min(selection_start)
+                                    ..=current_entry.max(selection_start)
+                                {
+                                    if self.entries[i].name != ".." && self.entries[i].name != "." {
+                                        self.push_to_clipboard(self.entries[i].file.clone());
+                                    }
+                                }
+                            } else {
+                                if self.entries[current_entry].name != ".."
+                                    && self.entries[current_entry].name != "."
+                                {
+                                    self.push_to_clipboard(
+                                        self.entries[current_entry].file.clone(),
+                                    );
+                                }
+                            }
+                        }
+                    } else if key_event == self.config.paste {
+                        let mut refresh = false;
+                        for entry_path in self.clone_clipboard() {
+                            let new_entry_path = new_path(
+                                self.working_directory.join(entry_path.file_name().unwrap()),
+                            );
+
+                            if entry_path.is_file() {
+                                if let Err(err) = std::fs::copy(&entry_path, &new_entry_path) {
+                                    match err.kind() {
+                                        std::io::ErrorKind::NotFound => {
+                                            self.errors.push(WalkedError::PathNotFound {
+                                                path: entry_path.clone(),
+                                                path_kind: PathKind::File,
+                                            })
+                                        }
+                                        std::io::ErrorKind::PermissionDenied => {
+                                            self.errors.push(WalkedError::PermissionDenied {
+                                                path: new_entry_path,
+                                                path_kind: PathKind::File,
+                                            })
+                                        }
+                                        _ => self.errors.push(WalkedError::Message(format!(
+                                            "Couldn't copy file from '{}' to '{}'",
+                                            entry_path.display(),
+                                            new_entry_path.display()
+                                        ))),
+                                    }
+                                }
+                                refresh = true;
+                            } else if entry_path.is_dir() {
+                                if let Err(err) = std::fs::create_dir(&new_entry_path) {
+                                    match err.kind() {
+                                        std::io::ErrorKind::PermissionDenied => {
+                                            self.errors.push(WalkedError::PermissionDenied {
+                                                path: new_entry_path,
+                                                path_kind: PathKind::Dir,
+                                            })
+                                        }
+                                        _ => self.errors.push(WalkedError::Message(format!(
+                                            "Couldn't create directory '{}'",
+                                            new_entry_path.display()
+                                        ))),
+                                    }
+                                } else {
+                                    copy_recursively(
+                                        &entry_path,
+                                        &new_entry_path,
+                                        &mut self.errors,
+                                    );
+                                }
+                                refresh = true;
+                            }
+                        }
+                        if refresh {
+                            self.read_working_dir();
+                        }
+                    } else if key_event == self.config.remove && self.entries.len() > 0 {
+                        if let Some(current_entry) = self.table_state.selected() {
+                            let selection_start =
+                                if let Some(selection_start) = self.selection_start {
+                                    self.selection_start = None;
+                                    selection_start
+                                } else {
+                                    current_entry
+                                };
+                            let mut refresh = false;
+
+                            for i in current_entry.min(selection_start)
+                                ..=current_entry.max(selection_start)
+                            {
+                                let entry = &self.entries[i];
+                                if entry.name == "." || entry.name == ".." {
+                                    continue;
+                                }
+                                if entry.file.is_file() {
+                                    if let Err(err) = std::fs::remove_file(&entry.file) {
+                                        match err.kind() {
+                                            std::io::ErrorKind::NotFound => {
+                                                self.errors.push(WalkedError::PathNotFound {
+                                                    path: entry.file.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                self.errors.push(WalkedError::PermissionDenied {
+                                                    path: entry.file.clone(),
+                                                    path_kind: PathKind::File,
+                                                })
+                                            }
+                                            _ => self.errors.push(WalkedError::Message(format!(
+                                                "Couldn't remove file '{}'",
+                                                entry.name
+                                            ))),
+                                        }
+                                    }
+                                    refresh = true;
+                                } else if entry.file.is_dir() {
+                                    if let Ok(dir) = std::fs::read_dir(&entry.file) {
+                                        if let Err(err) = if dir.count() > 0 {
+                                            std::fs::remove_dir_all(&entry.file)
+                                        } else {
+                                            std::fs::remove_dir(&entry.file)
+                                        } {
+                                            match err.kind() {
+                                                std::io::ErrorKind::NotFound => {
+                                                    self.errors.push(WalkedError::PathNotFound {
+                                                        path: entry.file.clone(),
+                                                        path_kind: PathKind::Dir,
+                                                    })
+                                                }
+                                                std::io::ErrorKind::PermissionDenied => self
+                                                    .errors
+                                                    .push(WalkedError::PermissionDenied {
+                                                        path: entry.file.clone(),
+                                                        path_kind: PathKind::Dir,
+                                                    }),
+                                                _ => {
+                                                    self.errors.push(WalkedError::Message(format!(
+                                                        "Couldn't remove directory '{}'",
+                                                        entry.name
+                                                    )))
+                                                }
+                                            }
+                                        }
+
+                                        refresh = true;
+                                    }
+                                }
+                            }
+
+                            if refresh {
+                                self.read_working_dir();
+                            }
+                        }
+                    } else if key_event == self.config.insert_mode {
+                        if self.entries.len() > 0 {
+                            let col = self.table_state.selected_column().unwrap_or(6);
+                            if col == 6 {
+                                _ = crossterm::execute!(
+                                    std::io::stderr(),
+                                    crossterm::cursor::SetCursorStyle::SteadyBar
+                                );
+                                self.mode = WindowMode::Insert;
+                                if let Some(i) = self.table_state.selected() {
+                                    self.edit_buffer = self.entries[i].name.clone();
+                                }
+                                self.table_state.select_column(Some(6));
+                            }
+                        }
+                    } else if key_event == self.config.command_mode {
+                        self.command_prompt = None;
+                        self.edit_buffer.clear();
+                        self.mode = WindowMode::Prompt;
+                    } else if key_event == self.config.quit {
+                        result.quit = true;
+                        return result;
+                    }
+                    self.refresh_cursor();
+                }
+                WindowMode::Insert => {
+                    if key_event == self.config.normal_mode
+                        || (key_event.code == KeyCode::Enter
+                            && key_event.kind == KeyEventKind::Press)
+                    {
+                        let mut denied = false;
+                        if let Some(i) = self.table_state.selected() {
+                            if self.edit_buffer.len() > 0 && self.entries.len() > 0 {
+                                let mut dist = self.working_directory.clone();
+                                dist.push(&self.edit_buffer);
+                                let disallowed_chars =
+                                    ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+                                if self.edit_buffer.contains(&disallowed_chars) {
+                                    self.mode = WindowMode::Insert;
+                                    denied = true;
+                                    self.errors.push(WalkedError::Message(format!("Paths can't contain the following characters: {disallowed_chars:?}")));
+                                } else if dist.exists() {
+                                    if dist != self.entries[i].file {
+                                        self.mode = WindowMode::Insert;
+                                        denied = true;
+                                        self.errors.push(WalkedError::Message(format!(
+                                            "'{}' already exists",
+                                            dist.display()
+                                        )));
+                                    }
+                                } else if self.entries[i].name != "."
+                                    || self.entries[i].name != ".."
+                                {
+                                    if let Err(err) = std::fs::rename(&self.entries[i].file, &dist)
+                                    {
+                                        match err.kind() {
+                                            std::io::ErrorKind::NotFound => {
+                                                self.errors.push(WalkedError::PathNotFound {
+                                                    path: self.entries[i].file.clone(),
+                                                    path_kind: PathKind::Ambigious,
+                                                })
+                                            }
+                                            std::io::ErrorKind::PermissionDenied => {
+                                                self.errors.push(WalkedError::PermissionDenied {
+                                                    path: self.entries[i].file.clone(),
+                                                    path_kind: PathKind::Ambigious,
+                                                })
+                                            }
+                                            _ => self.errors.push(WalkedError::Message(format!(
+                                                "Couldn't rename '{}' to '{}'",
+                                                self.entries[i].name,
+                                                dist.display()
+                                            ))),
+                                        }
+                                    } else {
+                                        self.read_working_dir();
+                                    }
+                                }
+                            }
+                        }
+                        if !denied {
+                            _ = crossterm::execute!(
+                                std::io::stderr(),
+                                crossterm::cursor::SetCursorStyle::SteadyBlock
+                            );
+                            self.mode = WindowMode::Normal;
+                            self.edit_buffer.clear();
+                        }
+                    } else if key_event.kind == KeyEventKind::Press {
+                        if key_event.code == KeyCode::Backspace {
+                            if self.cursor_offset > 0 {
+                                let mut idx = self.edit_buffer.chars().count() - 1;
+                                for (i, (len, _)) in self.edit_buffer.char_indices().enumerate() {
+                                    if i >= self.cursor_offset as usize {
+                                        break;
+                                    } else {
+                                        idx = len;
+                                    }
+                                }
+                                self.edit_buffer.remove(idx);
+                                self.cursor_offset -= 1;
+                            }
+                        } else if let KeyCode::Char(c) = key_event.code {
+                            let mut idx = self.edit_buffer.chars().count();
+                            for (i, (len, _)) in self.edit_buffer.char_indices().enumerate() {
+                                if i == self.cursor_offset as usize {
+                                    idx = len;
+                                    break;
+                                }
+                            }
+                            self.edit_buffer.insert(idx, c);
+                            self.cursor_offset += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    pub fn refresh_cursor(&mut self) {
+        if let Some(i) = self.table_state.selected() {
+            if i < self.entries.len() {
+                let col = self.table_state.selected_column().unwrap_or(6).min(6);
+                self.current_entry_length = self.entries[i][col].chars().count();
+                self.cursor_offset = self.cursor_offset.min(self.current_entry_length as u16)
+            }
+        }
+    }
+    pub fn walk(&mut self, current_entry: usize) -> bool {
+        if current_entry >= self.entries.len() {
+            return false;
+        }
+        if self.entries[current_entry].name == "." {
+            return true;
+        }
+        if self.entries[current_entry].name == ".." {
+            return self.parent();
+        }
+        let selected = &self.entries[current_entry];
+        if selected.file.is_dir() {
+            self.working_directory = selected.file.clone();
+            self.read_working_dir();
+            return true;
+        } else if selected.file.is_file() {
+            if selected.name.ends_with(".zip") {
+                _ = self.unzip_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar.gz") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar.xz") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            } else if selected.name.ends_with(".tar.bz2") {
+                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
+                return false;
+            }
+        }
+        false
+    }
+    pub fn parent(&mut self) -> bool {
+        if let Some(p) = self.working_directory.parent() {
+            self.working_directory = p.to_path_buf();
+            self.read_working_dir();
+            return true;
+        }
+        false
+    }
+    pub fn read_working_dir(&mut self) {
+        if let Ok(ls_out) = std::process::Command::new("/bin/ls")
+            .arg("-lah")
+            .arg(&self.working_directory)
+            .output()
+        {
+            if let Ok(ls_out) = str::from_utf8(&ls_out.stdout) {
+                self.entries.clear();
+                for l in ls_out.lines() {
+                    if let Ok(e) = LsEntry::from_ls_line(&self.working_directory, l) {
+                        self.entries.push(e);
+                    }
+                }
+                self.refresh_cursor();
+            }
+        }
+    }
+}
 #[derive(PartialEq, Eq)]
-pub enum PanelMode {
+pub enum WindowMode {
     Normal,
     Prompt,
     Search(Option<String>),
@@ -204,989 +1237,6 @@ impl IndexMut<usize> for LsEntry {
             6 => &mut self.name,
             _ => {
                 panic!("Index out of bounds for LsEntry")
-            }
-        }
-    }
-}
-
-pub struct Panel {
-    pub errors: Vec<WalkedError>,
-    pub table_state: TableState,
-    pub mode: PanelMode,
-    pub left: u16,
-    pub top: u16,
-    pub bottom: u16,
-    pub entries: Vec<LsEntry>,
-    pub incremental_search_results: Vec<usize>,
-    pub current_incremental_search_result: usize,
-    pub working_directory: PathBuf,
-    pub edit_buffer: String,
-    pub cursor_offset: u16,
-    pub current_entry_length: usize,
-    pub selection_start: Option<usize>,
-    pub queue: Vec<Command>,
-    pub command_prompt: Option<CommandKind>,
-}
-
-pub struct PanelFrameData {
-    pub quit: bool,
-    pub dont_write_stdout: bool,
-}
-
-impl Panel {
-    pub fn new(current_dir: PathBuf) -> Self {
-        let mut panel = Self {
-            errors: Vec::new(),
-            table_state: TableState::default(),
-            mode: PanelMode::Normal,
-            left: 2,
-            top: 2,
-            bottom: 1,
-            working_directory: current_dir,
-            entries: vec![],
-            incremental_search_results: vec![],
-            current_incremental_search_result: 0,
-            edit_buffer: String::new(),
-            cursor_offset: 0,
-            current_entry_length: 0,
-            selection_start: None,
-            queue: Vec::new(),
-            command_prompt: None,
-        };
-        panel.read_working_dir();
-        panel.table_state.select_first();
-        panel.table_state.select_column(Some(6));
-        panel.refresh_cursor();
-        panel
-    }
-
-    pub fn prompt(&mut self, cmd: CommandKind) {
-        self.mode = PanelMode::Prompt;
-        self.command_prompt = Some(cmd);
-        self.edit_buffer.clear();
-    }
-
-    pub fn new_dir_with_name(&mut self, dir_name: &str) -> PathBuf {
-        let new_dir = new_path(self.working_directory.join(dir_name));
-        if let Err(err) = std::fs::create_dir(&new_dir) {
-            match err.kind() {
-                std::io::ErrorKind::PermissionDenied => {
-                    self.errors.push(WalkedError::PermissionDenied {
-                        path: new_dir.clone(),
-                        path_kind: PathKind::Dir,
-                    })
-                }
-                _ => self.errors.push(WalkedError::Message(format!(
-                    "Couldn't create directory '{}'",
-                    new_dir.display()
-                ))),
-            }
-        } else {
-            self.read_working_dir();
-
-            for (i, entry) in self.entries.iter().enumerate() {
-                if entry.file == new_dir {
-                    self.table_state.select(Some(i));
-                    self.cursor_offset = 0;
-                    self.table_state.select_column(Some(6));
-                }
-            }
-        }
-        return new_dir;
-    }
-
-    pub fn new_file_with_name(&mut self, file_name: &str) -> PathBuf {
-        let new_file = new_path(self.working_directory.join(file_name));
-        if let Err(err) = std::fs::File::create(&new_file) {
-            match err.kind() {
-                std::io::ErrorKind::PermissionDenied => {
-                    self.errors.push(WalkedError::PermissionDenied {
-                        path: new_file.clone(),
-                        path_kind: PathKind::File,
-                    })
-                }
-                _ => self.errors.push(WalkedError::Message(format!(
-                    "Couldn't create file '{}'",
-                    new_file.display()
-                ))),
-            }
-        } else {
-            self.read_working_dir();
-
-            for (i, entry) in self.entries.iter().enumerate() {
-                if entry.file == new_file {
-                    self.table_state.select(Some(i));
-                    self.cursor_offset = 0;
-                    self.table_state.select_column(Some(6));
-                }
-            }
-        }
-        return new_file;
-    }
-
-    pub fn process_command_queue(&mut self, config: &Config) -> PanelFrameData {
-        let mut result = PanelFrameData {
-            quit: false,
-            dont_write_stdout: false,
-        };
-        if self.queue.len() > 0 {
-            let queue = self.queue.drain(..).collect::<Vec<_>>();
-            for cmd in queue {
-                match cmd.kind {
-                    CommandKind::NewFile => {
-                        self.new_file_with_name(&cmd.arg);
-                    }
-                    CommandKind::NewDirectory => {
-                        self.new_dir_with_name(&cmd.arg);
-                    }
-                    CommandKind::IncrementalSearch => {
-                        self.incremental_search_results.clear();
-                        for (i, entry) in self.entries.iter().enumerate() {
-                            if entry.name.to_lowercase().contains(&cmd.arg.to_lowercase()) {
-                                self.incremental_search_results.push(i);
-                            }
-                        }
-                        if self.incremental_search_results.len() > 0 {
-                            if let Some(selected) = self.table_state.selected() {
-                                if let Some((result_index, &entry_index)) = self
-                                    .incremental_search_results
-                                    .iter()
-                                    .enumerate()
-                                    .find(|(_, i)| **i >= selected)
-                                {
-                                    self.table_state.select(Some(entry_index));
-                                    self.current_incremental_search_result = result_index;
-                                    self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(6));
-                                } else {
-                                    self.current_incremental_search_result = 0;
-                                    self.table_state
-                                        .select(Some(self.incremental_search_results[0]));
-                                    self.cursor_offset = 0;
-                                    self.table_state.select_column(Some(6));
-                                }
-                            }
-                            if self.incremental_search_results.len() > 1 {
-                                self.mode = PanelMode::Search(Some(format!(
-                                    " \"{}\" ({} results) ",
-                                    cmd.arg,
-                                    self.incremental_search_results.len()
-                                )));
-                            }
-                        } else {
-                            self.mode = PanelMode::Search(Some(" <no mathces found>".to_string()));
-                        }
-                    }
-                    CommandKind::Quit => {
-                        result.quit = true;
-                    }
-                    CommandKind::QuitNoSave => {
-                        result.quit = true;
-                        result.dont_write_stdout = true;
-                    }
-                    CommandKind::Untar => {
-                        if let Some(i) = self.table_state.selected() {
-                            _ = self.untar_file(
-                                &self.entries[i].file.clone(),
-                                &self.entries[i].name.clone(),
-                            );
-                        }
-                    }
-                    CommandKind::Unzip => {
-                        if let Some(i) = self.table_state.selected() {
-                            _ = self.unzip_file(
-                                &self.entries[i].file.clone(),
-                                &self.entries[i].name.clone(),
-                            );
-                        }
-                    }
-                    CommandKind::Shell => {
-                        let cmd = &cmd.arg;
-                        if let Some(current_entry) = self.table_state.selected() {
-                            if let Some(selection_start) = self.selection_start {
-                                for i in current_entry.min(selection_start)
-                                    ..=current_entry.max(selection_start)
-                                {
-                                    if let Some(file_path) =
-                                        self.working_directory.join(&self.entries[i].file).to_str()
-                                    {
-                                        self.run_shell_command(config, &cmd, file_path);
-                                    }
-                                }
-                            } else {
-                                if let Some(file_path) = self
-                                    .working_directory
-                                    .join(&self.entries[current_entry].file)
-                                    .to_str()
-                                {
-                                    self.run_shell_command(config, &cmd, file_path);
-                                }
-                            }
-                        }
-                    }
-                    CommandKind::Custom(_) => todo!(),
-                }
-            }
-        }
-        result
-    }
-
-    pub fn unzip_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
-        let mut ok = false;
-        let p = p.as_ref();
-        if p.is_file() {
-            let out_dir = self.new_dir_with_name(dir);
-            if let Ok(_) = std::process::Command::new("unzip")
-                .current_dir(&self.working_directory)
-                .arg("-q")
-                .arg(p)
-                .arg("-d")
-                .arg(out_dir)
-                .output()
-            {
-                ok = true;
-            }
-        }
-        if !ok {
-            if let Some(file_name) = p.to_str() {
-                self.errors.push(WalkedError::Message(format!(
-                    "Couldn't unzip file '{}'",
-                    file_name
-                )));
-            } else {
-                self.errors
-                    .push(WalkedError::Message("Couldn't unzip file".to_string()));
-            }
-        }
-        ok
-    }
-
-    pub fn untar_file(&mut self, p: impl AsRef<Path>, dir: &str) -> bool {
-        let mut ok = false;
-        let p = p.as_ref();
-        if p.is_file() {
-            let out_dir = self.new_dir_with_name(dir);
-            if let Ok(_) = std::process::Command::new("tar")
-                .current_dir(&self.working_directory)
-                .arg("-xf")
-                .arg(p)
-                .arg("-C")
-                .arg(out_dir)
-                .output()
-            {
-                ok = true;
-            }
-        }
-        if !ok {
-            if let Some(file_name) = p.to_str() {
-                self.errors.push(WalkedError::Message(format!(
-                    "Couldn't untar file '{}'",
-                    file_name
-                )));
-            } else {
-                self.errors
-                    .push(WalkedError::Message("Couldn't untar file".to_string()));
-            }
-        }
-        ok
-    }
-
-    pub fn run_shell_command(&mut self, config: &Config, cmd: &str, file_path: &str) {
-        {
-            let cmd = cmd.replace(&config.shell_command_placeholder, file_path);
-            match std::process::Command::new("/bin/sh")
-                .current_dir(&self.working_directory)
-                .arg("-c")
-                .arg(cmd)
-                .output()
-            {
-                Ok(out) => {
-                    if let Ok(out) = std::str::from_utf8(&out.stdout) {
-                        if out.len() > 0 {
-                            self.errors.push(WalkedError::Message(out.to_string()));
-                        }
-                        self.read_working_dir();
-                        self.refresh_cursor();
-                    }
-                }
-                Err(err) => {
-                    self.errors
-                        .push(WalkedError::Message(format!("ERROR: {err}")));
-                }
-            }
-        }
-    }
-
-    /// Returns false if quit was pressed
-    pub fn update(
-        &mut self,
-        key_event: KeyEvent,
-        clipboard: &mut Vec<PathBuf>,
-        config: &Config,
-    ) -> PanelFrameData {
-        let mut result = PanelFrameData {
-            quit: false,
-            dont_write_stdout: false,
-        };
-
-        if self.errors.len() > 0 {
-            if key_event.kind == KeyEventKind::Press {
-                self.errors.clear();
-            }
-        } else {
-            match self.mode {
-                PanelMode::Prompt => {
-                    if key_event.code == KeyCode::Enter && key_event.is_press() {
-                        if let Some(cmd) = &self.command_prompt {
-                            self.queue.push(Command {
-                                kind: cmd.clone(),
-                                arg: self.edit_buffer.clone(),
-                            });
-                        } else {
-                            let cmd = self.edit_buffer.trim();
-                            if let Ok(cmd_kind) = CommandKind::from_str(cmd) {
-                                let arg = cmd[cmd_kind.command().len()..].trim().to_string();
-                                self.queue.push(Command {
-                                    kind: cmd_kind,
-                                    arg,
-                                })
-                            }
-                        }
-                        self.edit_buffer.clear();
-                        self.command_prompt = None;
-                        self.mode = PanelMode::Normal;
-                    } else if key_event.code == KeyCode::Tab && key_event.is_press() {
-                        (|| {
-                            let cmd = self.edit_buffer.trim();
-                            let is_in_search =
-                                matches!(self.command_prompt, Some(CommandKind::IncrementalSearch));
-                            if !is_in_search {
-                                for c in COMMANDS {
-                                    if cmd.len() < c.command().len() && c.command().starts_with(cmd)
-                                    {
-                                        self.edit_buffer.clear();
-                                        self.edit_buffer += c.command();
-                                        return;
-                                    }
-                                }
-                            }
-                            let mut cmd = {
-                                if let Some(i) = self.table_state.selected() {
-                                    cmd.replace(
-                                        &config.shell_command_placeholder,
-                                        &self.entries[i].name,
-                                    )
-                                } else {
-                                    cmd.to_string()
-                                }
-                            };
-                            if let Some(query) = cmd.split_ascii_whitespace().last() {
-                                let query_len = query.chars().count();
-                                let path = PathBuf::from(query);
-                                let parent = path.parent();
-                                if let Some(parent) = parent {
-                                    if parent == Path::new("") {
-                                        for e in self.entries.iter() {
-                                            if e.name.starts_with(query)
-                                                && query.len() < e.name.len()
-                                            {
-                                                for _ in 0..query_len {
-                                                    cmd.pop();
-                                                }
-                                                cmd += &e.name;
-                                                if !is_in_search && e.file.is_dir() {
-                                                    cmd += "/";
-                                                }
-                                                cmd.clone_into(&mut self.edit_buffer);
-                                                return;
-                                            }
-                                        }
-                                    } else {
-                                        let name = {
-                                            if let Some(name) = path.file_name() {
-                                                if let Some(name) = name.to_str() {
-                                                    name
-                                                } else {
-                                                    return;
-                                                }
-                                            } else {
-                                                return;
-                                            }
-                                        };
-                                        if parent.exists() && parent.is_dir() {
-                                            if let Ok(dir_contents) = parent.read_dir() {
-                                                for entry in dir_contents {
-                                                    if let Ok(entry) = entry {
-                                                        if let Some(d) = entry.file_name().to_str()
-                                                        {
-                                                            if d.starts_with(name)
-                                                                && name.len() < d.len()
-                                                            {
-                                                                if let Some(p) =
-                                                                    entry.path().to_str()
-                                                                {
-                                                                    for _ in 0..query_len {
-                                                                        cmd.pop();
-                                                                    }
-                                                                    cmd += p;
-                                                                    if !is_in_search
-                                                                        && entry.path().is_dir()
-                                                                    {
-                                                                        cmd += "/";
-                                                                    }
-                                                                    cmd.clone_into(
-                                                                        &mut self.edit_buffer,
-                                                                    );
-                                                                }
-                                                                return;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        })();
-                    } else if key_event.code == KeyCode::Esc && key_event.is_press() {
-                        self.edit_buffer.clear();
-                        self.command_prompt = None;
-                        self.mode = PanelMode::Normal;
-                    } else if key_event.code == KeyCode::Backspace && key_event.is_press() {
-                        self.edit_buffer.pop();
-                    } else if let KeyCode::Char(c) = key_event.code
-                        && key_event.is_press()
-                    {
-                        self.edit_buffer.push(c);
-                    }
-                }
-                PanelMode::Search(_) => {
-                    if key_event == config.quit {
-                        result.quit = true;
-                        return result;
-                    } else if key_event.code == KeyCode::Esc {
-                        self.mode = PanelMode::Normal;
-                    } else if key_event == config.dir_walk {
-                        if self.walk(
-                            self.incremental_search_results[self.current_incremental_search_result],
-                        ) {
-                            self.table_state.select_first();
-                            self.refresh_cursor();
-                            self.mode = PanelMode::Normal;
-                        }
-                    } else if key_event == config.next_search_result
-                        && self.incremental_search_results.len() > 0
-                    {
-                        if self.current_incremental_search_result + 1
-                            >= self.incremental_search_results.len()
-                        {
-                            self.current_incremental_search_result = 0;
-                        } else {
-                            self.current_incremental_search_result += 1;
-                        }
-                        self.table_state.select(Some(
-                            self.incremental_search_results[self.current_incremental_search_result],
-                        ));
-                        self.cursor_offset = 0;
-                        self.table_state.select_column(Some(6));
-                    } else if key_event == config.prev_search_result
-                        && self.incremental_search_results.len() > 0
-                    {
-                        if self.current_incremental_search_result <= 0 {
-                            self.current_incremental_search_result =
-                                self.incremental_search_results.len() - 1;
-                        } else {
-                            self.current_incremental_search_result -= 1;
-                        }
-                        self.table_state.select(Some(
-                            self.incremental_search_results[self.current_incremental_search_result],
-                        ));
-                        self.cursor_offset = 0;
-                        self.table_state.select_column(Some(6));
-                    }
-                }
-                PanelMode::Normal => {
-                    if key_event == config.dir_walk {
-                        if let Some(i) = self.table_state.selected() {
-                            if self.walk(i) {
-                                self.table_state.select_first();
-                                self.table_state.select_column(Some(6));
-                                self.refresh_cursor();
-                            }
-                        }
-                    } else if key_event == config.dir_up {
-                        if self.parent() {
-                            self.table_state.select_first();
-                            self.table_state.select_column(Some(6));
-                            self.refresh_cursor();
-                        }
-                    } else if key_event == config.up {
-                        self.selection_start = None;
-                        self.table_state.scroll_up_by(1);
-                        self.refresh_cursor();
-                    } else if key_event == config.select_up {
-                        if let None = self.selection_start {
-                            self.selection_start = self.table_state.selected();
-                        }
-                        self.table_state.scroll_up_by(1);
-                        self.refresh_cursor();
-                    } else if key_event == config.down {
-                        self.selection_start = None;
-                        self.table_state.scroll_down_by(1);
-                        self.refresh_cursor();
-                    } else if key_event == config.select_down {
-                        if let None = self.selection_start {
-                            self.selection_start = self.table_state.selected();
-                        }
-                        self.table_state.scroll_down_by(1);
-                        self.refresh_cursor();
-                    } else if key_event == config.left {
-                        if self.cursor_offset > 0 {
-                            self.cursor_offset -= 1;
-                        } else {
-                            let col = self.table_state.selected_column().unwrap_or(6);
-                            if col > 0 {
-                                let new_col = col - 1;
-                                self.table_state.select_column(Some(new_col));
-                                self.refresh_cursor();
-                            }
-                        }
-                    } else if key_event == config.column_left {
-                        let col = self.table_state.selected_column().unwrap_or(6);
-                        if col > 0 {
-                            let new_col = col - 1;
-                            self.table_state.select_column(Some(new_col));
-                            self.refresh_cursor();
-                        }
-                    } else if key_event == config.right {
-                        if self.cursor_offset < self.current_entry_length as u16 {
-                            self.cursor_offset += 1;
-                        } else {
-                            let col = self.table_state.selected_column().unwrap_or(6);
-                            if col < 6 {
-                                let new_col = col + 1;
-                                self.table_state.select_column(Some(new_col));
-                                self.refresh_cursor();
-                                self.cursor_offset = 0;
-                            }
-                        }
-                    } else if key_event == config.column_right {
-                        let col = self.table_state.selected_column().unwrap_or(6);
-                        if col < 6 {
-                            let new_col = col + 1;
-                            self.table_state.select_column(Some(new_col));
-                            self.refresh_cursor();
-                        }
-                    } else if key_event == config.incremental_search {
-                        self.prompt(CommandKind::IncrementalSearch);
-                    } else if key_event == config.new_file {
-                        self.prompt(CommandKind::NewFile);
-                    } else if key_event == config.new_directory {
-                        self.prompt(CommandKind::NewDirectory);
-                    } else if key_event == config.duplicate && self.entries.len() > 0 {
-                        if let Some(current_entry) = self.table_state.selected() {
-                            let selection_start =
-                                if let Some(selection_start) = self.selection_start {
-                                    self.selection_start = None;
-                                    selection_start
-                                } else {
-                                    current_entry
-                                };
-                            let mut refresh = false;
-
-                            for i in current_entry.min(selection_start)
-                                ..=current_entry.max(selection_start)
-                            {
-                                let entry = &self.entries[i];
-                                let new_entry_path = new_path(&entry.file);
-
-                                if entry.file.is_file() {
-                                    if let Err(err) = std::fs::copy(&entry.file, &new_entry_path) {
-                                        match err.kind() {
-                                            std::io::ErrorKind::NotFound => {
-                                                self.errors.push(WalkedError::PathNotFound {
-                                                    path: entry.file.clone(),
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                self.errors.push(WalkedError::PermissionDenied {
-                                                    path: new_entry_path,
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            _ => self.errors.push(WalkedError::Message(format!(
-                                                "Couldn't copy file from '{}' to '{}'",
-                                                entry.name,
-                                                new_entry_path.display()
-                                            ))),
-                                        }
-                                    }
-
-                                    refresh = true;
-                                } else if entry.file.is_dir() {
-                                    let new_dir = new_path(&entry.file);
-                                    if let Err(err) = std::fs::create_dir(&new_dir) {
-                                        match err.kind() {
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                self.errors.push(WalkedError::PermissionDenied {
-                                                    path: new_dir,
-                                                    path_kind: PathKind::Dir,
-                                                })
-                                            }
-                                            _ => self.errors.push(WalkedError::Message(format!(
-                                                "Couldn't create directory '{}'",
-                                                new_dir.display()
-                                            ))),
-                                        }
-                                    } else {
-                                        copy_recursively(&entry.file, &new_dir, &mut self.errors);
-                                    }
-                                    refresh = true;
-                                }
-                            }
-                            if refresh {
-                                self.read_working_dir();
-                            }
-                        }
-                    } else if key_event == config.copy && self.entries.len() > 0 {
-                        if let Some(current_entry) = self.table_state.selected() {
-                            clipboard.clear();
-                            if let Some(selection_start) = self.selection_start {
-                                for i in current_entry.min(selection_start)
-                                    ..=current_entry.max(selection_start)
-                                {
-                                    if self.entries[i].name != ".." && self.entries[i].name != "." {
-                                        clipboard.push(self.entries[i].file.clone());
-                                    }
-                                }
-                            } else {
-                                if self.entries[current_entry].name != ".."
-                                    && self.entries[current_entry].name != "."
-                                {
-                                    clipboard.push(self.entries[current_entry].file.clone());
-                                }
-                            }
-                        }
-                    } else if key_event == config.paste {
-                        let mut refresh = false;
-                        for entry_path in clipboard.iter() {
-                            let new_entry_path = new_path(
-                                self.working_directory.join(entry_path.file_name().unwrap()),
-                            );
-
-                            if entry_path.is_file() {
-                                if let Err(err) = std::fs::copy(entry_path, &new_entry_path) {
-                                    match err.kind() {
-                                        std::io::ErrorKind::NotFound => {
-                                            self.errors.push(WalkedError::PathNotFound {
-                                                path: entry_path.clone(),
-                                                path_kind: PathKind::File,
-                                            })
-                                        }
-                                        std::io::ErrorKind::PermissionDenied => {
-                                            self.errors.push(WalkedError::PermissionDenied {
-                                                path: new_entry_path,
-                                                path_kind: PathKind::File,
-                                            })
-                                        }
-                                        _ => self.errors.push(WalkedError::Message(format!(
-                                            "Couldn't copy file from '{}' to '{}'",
-                                            entry_path.display(),
-                                            new_entry_path.display()
-                                        ))),
-                                    }
-                                }
-                                refresh = true;
-                            } else if entry_path.is_dir() {
-                                if let Err(err) = std::fs::create_dir(&new_entry_path) {
-                                    match err.kind() {
-                                        std::io::ErrorKind::PermissionDenied => {
-                                            self.errors.push(WalkedError::PermissionDenied {
-                                                path: new_entry_path,
-                                                path_kind: PathKind::Dir,
-                                            })
-                                        }
-                                        _ => self.errors.push(WalkedError::Message(format!(
-                                            "Couldn't create directory '{}'",
-                                            new_entry_path.display()
-                                        ))),
-                                    }
-                                } else {
-                                    copy_recursively(entry_path, &new_entry_path, &mut self.errors);
-                                }
-                                refresh = true;
-                            }
-                        }
-                        if refresh {
-                            self.read_working_dir();
-                        }
-                    } else if key_event == config.remove && self.entries.len() > 0 {
-                        if let Some(current_entry) = self.table_state.selected() {
-                            let selection_start =
-                                if let Some(selection_start) = self.selection_start {
-                                    self.selection_start = None;
-                                    selection_start
-                                } else {
-                                    current_entry
-                                };
-                            let mut refresh = false;
-
-                            for i in current_entry.min(selection_start)
-                                ..=current_entry.max(selection_start)
-                            {
-                                let entry = &self.entries[i];
-                                if entry.name == "." || entry.name == ".." {
-                                    continue;
-                                }
-                                if entry.file.is_file() {
-                                    if let Err(err) = std::fs::remove_file(&entry.file) {
-                                        match err.kind() {
-                                            std::io::ErrorKind::NotFound => {
-                                                self.errors.push(WalkedError::PathNotFound {
-                                                    path: entry.file.clone(),
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                self.errors.push(WalkedError::PermissionDenied {
-                                                    path: entry.file.clone(),
-                                                    path_kind: PathKind::File,
-                                                })
-                                            }
-                                            _ => self.errors.push(WalkedError::Message(format!(
-                                                "Couldn't remove file '{}'",
-                                                entry.name
-                                            ))),
-                                        }
-                                    }
-                                    refresh = true;
-                                } else if entry.file.is_dir() {
-                                    if let Ok(dir) = std::fs::read_dir(&entry.file) {
-                                        if let Err(err) = if dir.count() > 0 {
-                                            std::fs::remove_dir_all(&entry.file)
-                                        } else {
-                                            std::fs::remove_dir(&entry.file)
-                                        } {
-                                            match err.kind() {
-                                                std::io::ErrorKind::NotFound => {
-                                                    self.errors.push(WalkedError::PathNotFound {
-                                                        path: entry.file.clone(),
-                                                        path_kind: PathKind::Dir,
-                                                    })
-                                                }
-                                                std::io::ErrorKind::PermissionDenied => self
-                                                    .errors
-                                                    .push(WalkedError::PermissionDenied {
-                                                        path: entry.file.clone(),
-                                                        path_kind: PathKind::Dir,
-                                                    }),
-                                                _ => {
-                                                    self.errors.push(WalkedError::Message(format!(
-                                                        "Couldn't remove directory '{}'",
-                                                        entry.name
-                                                    )))
-                                                }
-                                            }
-                                        }
-
-                                        refresh = true;
-                                    }
-                                }
-                            }
-
-                            if refresh {
-                                self.read_working_dir();
-                            }
-                        }
-                    } else if key_event == config.insert_mode {
-                        if self.entries.len() > 0 {
-                            let col = self.table_state.selected_column().unwrap_or(6);
-                            if col == 6 {
-                                _ = crossterm::execute!(
-                                    std::io::stderr(),
-                                    crossterm::cursor::SetCursorStyle::SteadyBar
-                                );
-                                self.mode = PanelMode::Insert;
-                                if let Some(i) = self.table_state.selected() {
-                                    self.edit_buffer = self.entries[i].name.clone();
-                                }
-                                self.table_state.select_column(Some(6));
-                            }
-                        }
-                    } else if key_event == config.command_mode {
-                        self.command_prompt = None;
-                        self.edit_buffer.clear();
-                        self.mode = PanelMode::Prompt;
-                    } else if key_event == config.quit {
-                        result.quit = true;
-                        return result;
-                    }
-                    self.refresh_cursor();
-                }
-                PanelMode::Insert => {
-                    if key_event == config.normal_mode
-                        || (key_event.code == KeyCode::Enter
-                            && key_event.kind == KeyEventKind::Press)
-                    {
-                        let mut denied = false;
-                        if let Some(i) = self.table_state.selected() {
-                            if self.edit_buffer.len() > 0 && self.entries.len() > 0 {
-                                let mut dist = self.working_directory.clone();
-                                dist.push(&self.edit_buffer);
-                                let disallowed_chars =
-                                    ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
-                                if self.edit_buffer.contains(&disallowed_chars) {
-                                    self.mode = PanelMode::Insert;
-                                    denied = true;
-                                    self.errors.push(WalkedError::Message(format!("Paths can't contain the following characters: {disallowed_chars:?}")));
-                                } else if dist.exists() {
-                                    if dist != self.entries[i].file {
-                                        self.mode = PanelMode::Insert;
-                                        denied = true;
-                                        self.errors.push(WalkedError::Message(format!(
-                                            "'{}' already exists",
-                                            dist.display()
-                                        )));
-                                    }
-                                } else if self.entries[i].name != "."
-                                    || self.entries[i].name != ".."
-                                {
-                                    if let Err(err) = std::fs::rename(&self.entries[i].file, &dist)
-                                    {
-                                        match err.kind() {
-                                            std::io::ErrorKind::NotFound => {
-                                                self.errors.push(WalkedError::PathNotFound {
-                                                    path: self.entries[i].file.clone(),
-                                                    path_kind: PathKind::Ambigious,
-                                                })
-                                            }
-                                            std::io::ErrorKind::PermissionDenied => {
-                                                self.errors.push(WalkedError::PermissionDenied {
-                                                    path: self.entries[i].file.clone(),
-                                                    path_kind: PathKind::Ambigious,
-                                                })
-                                            }
-                                            _ => self.errors.push(WalkedError::Message(format!(
-                                                "Couldn't rename '{}' to '{}'",
-                                                self.entries[i].name,
-                                                dist.display()
-                                            ))),
-                                        }
-                                    } else {
-                                        self.read_working_dir();
-                                    }
-                                }
-                            }
-                        }
-                        if !denied {
-                            _ = crossterm::execute!(
-                                std::io::stderr(),
-                                crossterm::cursor::SetCursorStyle::SteadyBlock
-                            );
-                            self.mode = PanelMode::Normal;
-                            self.edit_buffer.clear();
-                        }
-                    } else if key_event.kind == KeyEventKind::Press {
-                        if key_event.code == KeyCode::Backspace {
-                            if self.cursor_offset > 0 {
-                                let mut idx = self.edit_buffer.chars().count() - 1;
-                                for (i, (len, _)) in self.edit_buffer.char_indices().enumerate() {
-                                    if i >= self.cursor_offset as usize {
-                                        break;
-                                    } else {
-                                        idx = len;
-                                    }
-                                }
-                                self.edit_buffer.remove(idx);
-                                self.cursor_offset -= 1;
-                            }
-                        } else if let KeyCode::Char(c) = key_event.code {
-                            let mut idx = self.edit_buffer.chars().count();
-                            for (i, (len, _)) in self.edit_buffer.char_indices().enumerate() {
-                                if i == self.cursor_offset as usize {
-                                    idx = len;
-                                    break;
-                                }
-                            }
-                            self.edit_buffer.insert(idx, c);
-                            self.cursor_offset += 1;
-                        }
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    pub fn refresh_cursor(&mut self) {
-        if let Some(i) = self.table_state.selected() {
-            if i < self.entries.len() {
-                let col = self.table_state.selected_column().unwrap_or(6).min(6);
-                self.current_entry_length = self.entries[i][col].chars().count();
-                self.cursor_offset = self.cursor_offset.min(self.current_entry_length as u16)
-            }
-        }
-    }
-    pub fn walk(&mut self, current_entry: usize) -> bool {
-        if current_entry >= self.entries.len() {
-            return false;
-        }
-        if self.entries[current_entry].name == "." {
-            return true;
-        }
-        if self.entries[current_entry].name == ".." {
-            return self.parent();
-        }
-        let selected = &self.entries[current_entry];
-        if selected.file.is_dir() {
-            self.working_directory = selected.file.clone();
-            self.read_working_dir();
-            return true;
-        } else if selected.file.is_file() {
-            if selected.name.ends_with(".zip") {
-                _ = self.unzip_file(selected.file.clone(), &selected.name.clone());
-                return false;
-            } else if selected.name.ends_with(".tar") {
-                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
-                return false;
-            } else if selected.name.ends_with(".tar.gz") {
-                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
-                return false;
-            } else if selected.name.ends_with(".tar.xz") {
-                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
-                return false;
-            } else if selected.name.ends_with(".tar.bz2") {
-                _ = self.untar_file(selected.file.clone(), &selected.name.clone());
-                return false;
-            }
-        }
-        false
-    }
-    pub fn parent(&mut self) -> bool {
-        if let Some(p) = self.working_directory.parent() {
-            self.working_directory = p.to_path_buf();
-            self.read_working_dir();
-            return true;
-        }
-        false
-    }
-    pub fn read_working_dir(&mut self) {
-        if let Ok(ls_out) = std::process::Command::new("/bin/ls")
-            .arg("-lah")
-            .arg(&self.working_directory)
-            .output()
-        {
-            if let Ok(ls_out) = str::from_utf8(&ls_out.stdout) {
-                self.entries.clear();
-                for l in ls_out.lines() {
-                    if let Ok(e) = LsEntry::from_ls_line(&self.working_directory, l) {
-                        self.entries.push(e);
-                    }
-                }
-                self.refresh_cursor();
             }
         }
     }

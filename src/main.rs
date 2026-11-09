@@ -13,7 +13,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Padding, Row, Table},
 };
-use window::{Panel, PanelMode, Window};
+use window::{Window, WindowMode};
 
 #[derive(Debug)]
 pub enum PathKind {
@@ -100,14 +100,14 @@ fn main() -> Result<(), std::io::Error> {
     }
 }
 
-impl PanelMode {
+impl WindowMode {
     fn to_string(&self, config: &Config) -> String {
         match self {
-            PanelMode::Normal => config.normal_mode_text.clone(),
-            PanelMode::Prompt => config.normal_mode_text.clone(),
-            PanelMode::Search(None) => config.search_mode_text.clone(),
-            PanelMode::Search(Some(msg)) => format!("{}{msg}", config.search_mode_text),
-            PanelMode::Insert => config.insert_mode_text.clone(),
+            WindowMode::Normal => config.normal_mode_text.clone(),
+            WindowMode::Prompt => config.normal_mode_text.clone(),
+            WindowMode::Search(None) => config.search_mode_text.clone(),
+            WindowMode::Search(Some(msg)) => format!("{}{msg}", config.search_mode_text),
+            WindowMode::Insert => config.insert_mode_text.clone(),
         }
     }
 }
@@ -117,32 +117,22 @@ fn run<W: ratatui::prelude::Backend>(
     config: Config,
     current_dir: PathBuf,
 ) -> Result<Option<PathBuf>, std::io::Error> {
-    let mut window = Window {
-        panel: Panel::new(current_dir),
-        clipboard: Vec::new(),
-        config,
-    };
-
-    _ = window.panel.update(
-        event::KeyEvent {
-            code: event::KeyCode::Null,
-            modifiers: event::KeyModifiers::NONE,
-            kind: event::KeyEventKind::Press,
-            state: event::KeyEventState::NONE,
-        },
-        &mut window.clipboard,
-        &window.config,
-    );
+    let mut window = Window::new(config, current_dir);
+    _ = window.update(event::KeyEvent {
+        code: event::KeyCode::Null,
+        modifiers: event::KeyModifiers::NONE,
+        kind: event::KeyEventKind::Press,
+        state: event::KeyEventState::NONE,
+    });
     loop {
         terminal.draw(|f| {
             let area = f.area();
-            let panel = &mut window.panel;
             let view = Block::new()
-                .padding(Padding::new(panel.left, 0, panel.top, panel.bottom))
-                .title(if panel.errors.len() > 0 {
+                .padding(Padding::new(window.left, 0, window.top, window.bottom))
+                .title(if window.errors.len() > 0 {
                     {
                         let mut res = String::new();
-                        for err in panel.errors.iter() {
+                        for err in window.errors.iter() {
                             res.push_str(&format!("{err} "));
                         }
                         res
@@ -150,30 +140,30 @@ fn run<W: ratatui::prelude::Backend>(
                     .into_left_aligned_line()
                     .red()
                 } else {
-                    panel
+                    window
                         .working_directory
                         .to_str()
                         .unwrap()
                         .to_string()
                         .into_centered_line()
                 })
-                .title_bottom(panel.mode.to_string(&window.config).into_centered_line());
+                .title_bottom(window.mode.to_string(&window.config).into_centered_line());
 
             let mut col_widths = [0u16; 7];
-            for entry in &panel.entries {
+            for entry in &window.entries {
                 for col in 0..7 {
                     col_widths[col] = col_widths[col].max(entry[col].chars().count() as u16);
                 }
             }
 
-            let content = panel
+            let content = window
                 .entries
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
                     let is_in_selection = {
-                        if let Some(selection_start) = panel.selection_start {
-                            if let Some(cur) = panel.table_state.selected() {
+                        if let Some(selection_start) = window.selection_start {
+                            if let Some(cur) = window.table_state.selected() {
                                 if i == cur {
                                     true
                                 } else {
@@ -209,10 +199,10 @@ fn run<W: ratatui::prelude::Backend>(
                                 let line = Line::from(spans);
                                 return line;
                             }
-                            let text = if col == 6 && panel.mode == PanelMode::Insert {
-                                if let Some(selected) = panel.table_state.selected() {
+                            let text = if col == 6 && window.mode == WindowMode::Insert {
+                                if let Some(selected) = window.table_state.selected() {
                                     if selected == i {
-                                        &panel.edit_buffer
+                                        &window.edit_buffer
                                     } else {
                                         &p[col]
                                     }
@@ -240,26 +230,26 @@ fn run<W: ratatui::prelude::Backend>(
                     Row::new(cells)
                 })
                 .collect::<Vec<Row>>();
-            if let Some(i) = panel.table_state.selected() {
+            if let Some(i) = window.table_state.selected() {
                 let row_offset = {
-                    if i < panel.table_state.offset() {
+                    if i < window.table_state.offset() {
                         0
-                    } else if panel.entries.len() > 0 {
-                        (i - panel.table_state.offset()).min(
-                            (panel.entries.len() - 1).min(view.inner(area).height as usize - 1),
+                    } else if window.entries.len() > 0 {
+                        (i - window.table_state.offset()).min(
+                            (window.entries.len() - 1).min(view.inner(area).height as usize - 1),
                         ) as u16
                     } else {
                         0
                     }
                 };
-                let selected_col = panel.table_state.selected_column().unwrap_or(6).min(6);
+                let selected_col = window.table_state.selected_column().unwrap_or(6).min(6);
                 let mut col_offset = 0u16;
                 for c in 0..selected_col {
                     col_offset += col_widths[c] + 1;
                 }
                 f.set_cursor_position((
-                    area.x + panel.left + col_offset + panel.cursor_offset,
-                    area.y + panel.top + 1 + row_offset,
+                    area.x + window.left + col_offset + window.cursor_offset,
+                    area.y + window.top + 1 + row_offset,
                 ));
             }
 
@@ -277,31 +267,31 @@ fn run<W: ratatui::prelude::Backend>(
                 .rows(content)
                 .block(view.clone())
                 .cell_highlight_style(Style::new().reversed());
-            match panel.mode {
-                PanelMode::Prompt => {
+            match window.mode {
+                WindowMode::Prompt => {
                     let mut top_area = area;
                     top_area.height -= 2;
                     let mut bottom_area = top_area;
                     bottom_area.y += top_area.height;
                     bottom_area.height = 2;
-                    f.render_stateful_widget(table, top_area, &mut panel.table_state);
-                    if let Some(cmd) = &panel.command_prompt {
+                    f.render_stateful_widget(table, top_area, &mut window.table_state);
+                    if let Some(cmd) = &window.command_prompt {
                         f.render_widget(
-                            format!(":{} {}_", cmd.to_string(), panel.edit_buffer),
+                            format!(":{} {}_", cmd.to_string(), window.edit_buffer),
                             bottom_area,
                         );
                     } else {
-                        f.render_widget(format!(":{}_", panel.edit_buffer), bottom_area);
+                        f.render_widget(format!(":{}_", window.edit_buffer), bottom_area);
                     }
                 }
-                PanelMode::Normal | PanelMode::Search(_) => {
-                    f.render_stateful_widget(table, area, &mut panel.table_state);
+                WindowMode::Normal | WindowMode::Search(_) => {
+                    f.render_stateful_widget(table, area, &mut window.table_state);
                 }
-                PanelMode::Insert => {
+                WindowMode::Insert => {
                     f.render_stateful_widget(
                         table.cell_highlight_style(Style::new().underlined()),
                         area,
-                        &mut panel.table_state,
+                        &mut window.table_state,
                     );
                 }
             }
@@ -311,14 +301,12 @@ fn run<W: ratatui::prelude::Backend>(
 
         if let Event::Key(key_event) = event {
             let (quit, dont_write_stdout) = {
-                let res = window
-                    .panel
-                    .update(key_event, &mut window.clipboard, &window.config);
+                let res = window.update(key_event);
 
-                let window::PanelFrameData {
+                let window::WindowFrameStep {
                     quit,
                     dont_write_stdout,
-                } = window.panel.process_command_queue(&window.config);
+                } = window.process_command_queue();
                 let quit = res.quit | quit;
                 let dont_write_stdout = res.dont_write_stdout | dont_write_stdout;
                 (quit, dont_write_stdout)
@@ -327,7 +315,7 @@ fn run<W: ratatui::prelude::Backend>(
                 if dont_write_stdout {
                     return Ok(None);
                 } else {
-                    return Ok(Some(window.panel.working_directory.clone()));
+                    return Ok(Some(window.working_directory.clone()));
                 }
             }
         }

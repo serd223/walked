@@ -1,7 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use toml::Value;
 
+pub enum ClipboardType {
+    TemporaryFile,
+    File(String),
+    InMemory,
+}
+
 pub struct Config {
+    pub clipboard_file: ClipboardType,
     pub normal_mode_text: String,
     pub search_mode_text: String,
     pub insert_mode_text: String,
@@ -36,6 +43,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
+            clipboard_file: ClipboardType::TemporaryFile,
             show_working_directory: true,
             simple_working_directory: false,
             normal_mode_text: String::from("NORMAL"),
@@ -265,6 +273,15 @@ impl Config {
     }
 
     pub fn from_toml(&mut self, toml: Value) {
+        if let Some(v) = toml.get("clipboard_file") {
+            if let Some(v) = v.as_str() {
+                if v == "none" {
+                    self.clipboard_file = ClipboardType::InMemory;
+                } else {
+                    self.clipboard_file = ClipboardType::File(v.to_string())
+                }
+            }
+        }
         if let Some(v) = toml.get("normal_mode_text") {
             if let Some(v) = v.as_str() {
                 self.normal_mode_text = v.to_string();
