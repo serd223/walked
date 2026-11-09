@@ -18,6 +18,7 @@ pub struct Config {
     pub tmux_display_popup_command: Vec<String>,
     pub clipboard_file: ClipboardType,
     pub normal_mode_text: String,
+    pub select_mode_text: String,
     pub search_mode_text: String,
     pub insert_mode_text: String,
     pub shell_command_placeholder: String,
@@ -33,9 +34,7 @@ pub struct Config {
     pub next_search_result: KeyEvent,
     pub prev_search_result: KeyEvent,
     pub up: KeyEvent,
-    pub select_up: KeyEvent,
     pub down: KeyEvent,
-    pub select_down: KeyEvent,
     pub left: KeyEvent,
     pub column_left: KeyEvent,
     pub right: KeyEvent,
@@ -44,6 +43,7 @@ pub struct Config {
     pub dir_up: KeyEvent,
     pub insert_mode: KeyEvent,
     pub normal_mode: KeyEvent,
+    pub select_mode: KeyEvent,
     pub command_mode: KeyEvent,
     pub quit: KeyEvent,
 }
@@ -63,6 +63,7 @@ impl Default for Config {
             show_working_directory: true,
             simple_working_directory: false,
             normal_mode_text: String::from("NORMAL"),
+            select_mode_text: String::from("SELECT"),
             search_mode_text: String::from("SEARCH"),
             insert_mode_text: String::from("INSERT"),
             shell_command_placeholder: String::from("%"),
@@ -126,20 +127,8 @@ impl Default for Config {
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
             },
-            select_up: KeyEvent {
-                code: KeyCode::Char('K'),
-                modifiers: KeyModifiers::NONE,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
             down: KeyEvent {
                 code: KeyCode::Char('j'),
-                modifiers: KeyModifiers::NONE,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            select_down: KeyEvent {
-                code: KeyCode::Char('J'),
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
@@ -176,6 +165,12 @@ impl Default for Config {
             },
             normal_mode: KeyEvent {
                 code: KeyCode::Esc,
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            select_mode: KeyEvent {
+                code: KeyCode::Char('v'),
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: KeyEventState::NONE,
@@ -322,6 +317,11 @@ impl Config {
                 self.normal_mode_text = v.to_string();
             }
         }
+        if let Some(v) = toml.get("select_mode_text") {
+            if let Some(v) = v.as_str() {
+                self.select_mode_text = v.to_string();
+            }
+        }
         if let Some(v) = toml.get("search_mode_text") {
             if let Some(v) = v.as_str() {
                 self.search_mode_text = v.to_string();
@@ -377,14 +377,8 @@ impl Config {
         if let Some(v) = toml.get("up") {
             Self::key_event_from_toml(&mut self.up, v);
         }
-        if let Some(v) = toml.get("select_up") {
-            Self::key_event_from_toml(&mut self.select_up, v);
-        }
         if let Some(v) = toml.get("down") {
             Self::key_event_from_toml(&mut self.down, v);
-        }
-        if let Some(v) = toml.get("select_down") {
-            Self::key_event_from_toml(&mut self.select_down, v);
         }
         if let Some(v) = toml.get("left") {
             Self::key_event_from_toml(&mut self.left, v);
@@ -409,6 +403,9 @@ impl Config {
         }
         if let Some(v) = toml.get("normal_mode") {
             Self::key_event_from_toml(&mut self.normal_mode, v);
+        }
+        if let Some(v) = toml.get("select_mode") {
+            Self::key_event_from_toml(&mut self.select_mode, v);
         }
         if let Some(v) = toml.get("command_mode") {
             Self::key_event_from_toml(&mut self.command_mode, v);

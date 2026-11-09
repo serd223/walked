@@ -105,6 +105,7 @@ impl WindowMode {
         match self {
             WindowMode::Normal => config.normal_mode_text.clone(),
             WindowMode::Prompt => config.normal_mode_text.clone(),
+            WindowMode::Select => config.select_mode_text.clone(),
             WindowMode::Search(None) => config.search_mode_text.clone(),
             WindowMode::Search(Some(msg)) => format!("{}{msg}", config.search_mode_text),
             WindowMode::Insert => config.insert_mode_text.clone(),
@@ -156,28 +157,16 @@ fn run<W: ratatui::prelude::Backend>(
                 }
             }
 
+            let selection = window.selection();
+            let is_multiline = !window.selection.is_empty();
             let content = window
                 .entries
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
                     let is_in_selection = {
-                        if let Some(selection_start) = window.selection_start {
-                            if let Some(cur) = window.table_state.selected() {
-                                if i == cur {
-                                    true
-                                } else {
-                                    if cur > selection_start {
-                                        i < cur && i >= selection_start
-                                    } else if cur < selection_start {
-                                        i > cur && i <= selection_start
-                                    } else {
-                                        false
-                                    }
-                                }
-                            } else {
-                                false
-                            }
+                        if let Some(selection) = &selection {
+                            is_multiline && selection.contains(&i)
                         } else {
                             false
                         }
@@ -284,7 +273,7 @@ fn run<W: ratatui::prelude::Backend>(
                         f.render_widget(format!(":{}_", window.edit_buffer), bottom_area);
                     }
                 }
-                WindowMode::Normal | WindowMode::Search(_) => {
+                WindowMode::Normal | WindowMode::Search(_) | WindowMode::Select => {
                     f.render_stateful_widget(table, area, &mut window.table_state);
                 }
                 WindowMode::Insert => {

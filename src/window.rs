@@ -120,7 +120,7 @@ pub struct Window {
     pub edit_buffer: String,
     pub cursor_offset: u16,
     pub current_entry_length: usize,
-    pub selection_start: Option<usize>,
+    pub selection: Vec<usize>,
     pub queue: Vec<Command>,
     pub command_prompt: Option<CommandKind>,
     pub clipboard_file: Option<PathBuf>,
@@ -168,7 +168,7 @@ impl Window {
             edit_buffer: String::new(),
             cursor_offset: 0,
             current_entry_length: 0,
-            selection_start: None,
+            selection: vec![],
             queue: Vec::new(),
             command_prompt: None,
             clipboard_file,
@@ -331,10 +331,8 @@ impl Window {
                         let quiet = matches!(cmd.kind, CommandKind::ShellQuiet);
                         let cmd = &cmd.arg;
                         if let Some(current_entry) = self.table_state.selected() {
-                            if let Some(selection_start) = self.selection_start {
-                                for i in current_entry.min(selection_start)
-                                    ..=current_entry.max(selection_start)
-                                {
+                            if self.selection.len() > 0 {
+                                for i in self.selection.clone() {
                                     if let Some(file_path) =
                                         self.working_directory.join(&self.entries[i].file).to_str()
                                     {
@@ -462,9 +460,8 @@ impl Window {
         if self.entries.len() > 0 {
             if let Some(current_entry) = self.table_state.selected() {
                 self.reset_clipboard();
-                if let Some(selection_start) = self.selection_start {
-                    for i in current_entry.min(selection_start)..=current_entry.max(selection_start)
-                    {
+                if self.selection.len() > 0 {
+                    for i in self.selection.clone() {
                         if self.entries[i].name != ".." && self.entries[i].name != "." {
                             self.push_to_clipboard(self.entries[i].file.clone());
                         }
@@ -532,6 +529,16 @@ impl Window {
         if refresh {
             self.read_working_dir();
         }
+    }
+
+    pub fn selection(&self) -> Option<Vec<usize>> {
+        self.table_state.selected().map(|a| {
+            if self.selection.is_empty() {
+                vec![a]
+            } else {
+                self.selection.clone()
+            }
+        })
     }
 
     pub fn reset_clipboard(&mut self) {
@@ -776,24 +783,14 @@ impl Window {
                             self.table_state.select_column(Some(6));
                             self.refresh_cursor();
                         }
+                    } else if key_event == self.config.select_mode {
+                        self.mode = WindowMode::Select;
                     } else if key_event == self.config.up {
-                        self.selection_start = None;
-                        self.table_state.scroll_up_by(1);
-                        self.refresh_cursor();
-                    } else if key_event == self.config.select_up {
-                        if let None = self.selection_start {
-                            self.selection_start = self.table_state.selected();
-                        }
+                        self.selection.clear();
                         self.table_state.scroll_up_by(1);
                         self.refresh_cursor();
                     } else if key_event == self.config.down {
-                        self.selection_start = None;
-                        self.table_state.scroll_down_by(1);
-                        self.refresh_cursor();
-                    } else if key_event == self.config.select_down {
-                        if let None = self.selection_start {
-                            self.selection_start = self.table_state.selected();
-                        }
+                        self.selection.clear();
                         self.table_state.scroll_down_by(1);
                         self.refresh_cursor();
                     } else if key_event == self.config.left {
@@ -840,19 +837,10 @@ impl Window {
                     } else if key_event == self.config.new_directory {
                         self.prompt(CommandKind::NewDirectory);
                     } else if key_event == self.config.duplicate && self.entries.len() > 0 {
-                        if let Some(current_entry) = self.table_state.selected() {
-                            let selection_start =
-                                if let Some(selection_start) = self.selection_start {
-                                    self.selection_start = None;
-                                    selection_start
-                                } else {
-                                    current_entry
-                                };
+                        if let Some(selection) = self.selection() {
                             let mut refresh = false;
 
-                            for i in current_entry.min(selection_start)
-                                ..=current_entry.max(selection_start)
-                            {
+                            for i in selection {
                                 let entry = &self.entries[i];
                                 let new_entry_path = new_path(&entry.file);
 
@@ -906,23 +894,15 @@ impl Window {
                             }
                         }
                     } else if key_event == self.config.copy && self.entries.len() > 0 {
+                        self.selection.clear();
                         self.try_copy_selection();
                     } else if key_event == self.config.paste {
                         self.try_paste_selection();
                     } else if key_event == self.config.remove && self.entries.len() > 0 {
-                        if let Some(current_entry) = self.table_state.selected() {
-                            let selection_start =
-                                if let Some(selection_start) = self.selection_start {
-                                    self.selection_start = None;
-                                    selection_start
-                                } else {
-                                    current_entry
-                                };
+                        if let Some(selection) = self.selection() {
                             let mut refresh = false;
 
-                            for i in current_entry.min(selection_start)
-                                ..=current_entry.max(selection_start)
-                            {
+                            for i in selection {
                                 let entry = &self.entries[i];
                                 if entry.name == "." || entry.name == ".." {
                                     continue;
@@ -1011,6 +991,36 @@ impl Window {
                         return result;
                     }
                     self.refresh_cursor();
+                }
+                WindowMode::Select => {
+                    if key_event == self.config.normal_mode {
+                        self.mode = WindowMode::Normal;
+                    } else if key_event == self.config.dir_walk {
+                        if let Some(entry_index) = self.table_state.selected() {
+                            let mut selection_index = None;
+                            for (ni, &n) in self.selection.iter().enumerate() {
+                                if n == entry_index {
+                                    selection_index = Some(ni);
+                                    break;
+                                }
+                            }
+                            if let Some(selection_index) = selection_index {
+                                self.selection[selection_index] = *self.selection.last().unwrap();
+                                self.selection.pop();
+                            } else {
+                                self.selection.push(entry_index);
+                            }
+                        }
+                    } else if key_event == self.config.up {
+                        self.table_state.scroll_up_by(1);
+                        self.refresh_cursor();
+                    } else if key_event == self.config.down {
+                        self.table_state.scroll_down_by(1);
+                        self.refresh_cursor();
+                    } else if key_event == self.config.quit {
+                        result.quit = true;
+                        return result;
+                    }
                 }
                 WindowMode::Insert => {
                     if key_event == self.config.normal_mode
@@ -1182,11 +1192,15 @@ impl Window {
 pub enum WindowMode {
     Normal,
     Prompt,
+    // TODO: Current SELECT mode is very limited, it doesn't support
+    // select up/down inputs (only drop selections) and user needs to
+    // go back into NORMAL mode to do most operations.
+    Select,
     Search(Option<String>),
     Insert,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct LsEntry {
     pub file: PathBuf,
     pub perms: String,

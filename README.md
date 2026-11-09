@@ -115,11 +115,7 @@ copy = "CS-c" # Control + Shift + C
 
 `up`: k
 
-`select_up`: K
-
 `down`: j
-
-`select_down`: J
 
 `left`: h
 
@@ -132,6 +128,8 @@ copy = "CS-c" # Control + Shift + C
 `insert_mode`: i
 
 `normal_mode`: `Esc`
+
+`select_mode`: v
 
 `command_mode`: :
 
