@@ -1,18 +1,17 @@
 # walked
-Simple terminal file manager
+Terminal file manager that looks like an interactive [`ls`](https://en.wikipedia.org/wiki/Ls). (Inspired by [`Dired`](https://www.deinprogramm.de/sperber/software/dired/))
 
 ![walked demo gif](./github/walked-demo.gif)
 
 # Features
-`walked` can:
- - Navigate through the filesystem
- - Duplicate, copy and paste files/directories
- - Create, remove and rename files/directories
- - Select multiple entries and do the operations mentioned above in bulk (except renaming, for now)
- - `ls` style information display
- - Do incremental search
- - unzip/untar files (via `unzip` and `tar` utilities)
- - Run shell utilities one or multiple files via :sh command
+ - Navigate through the filesystem, create, remove, rename, copy, and paste files/directories.
+ - Vim motions for navigation. Seperate INSERT (i), NORMAL (Esc), and SELECT (v) modes for different operations.
+ - Incremental search.
+ - Seamlessly unzip/untar files and 'walk' into them like folders.
+ - Includes a command prompt with tab-completions accessible via ':' in NORMAL mode.
+   * This command prompt - in addition to other commands - includes the command :sh which lets you run arbitrary shell commands on selected files. For instance, `:sh mv % %.bak` would add a '.bak' suffix to all selected files.
+ - [`tmux`](https://tmux.app/) integration for commands run with :sh. If the `TMUX` environment variable is available, commands are run inside a configurable `tmux` popup. :sh! can be used to explicitly run the command without touching `tmux`.
+ - Highly configurable (See `Configuration` section below).
 
 Work in progress/planned features:
  - Fuzzy search
@@ -25,16 +24,12 @@ Work in progress/planned features:
   $ cargo install --path .
 ```
 
-For you to be able to change your directory upon quitting `walked`, you will need to add something along the lines of the following script to your autoexec script (.bashrc, Powershell_profile.ps1, etc):
-```powershell
-# Example Powershell profile
-function wd() {
-  cd $(walked.exe)
-}
+For you to be able to change your directory upon quitting `walked`, you will need to add something along the lines of the following snippet to your autoexec script (.zshrc, .bashrc, Powershell_profile.ps1, etc):
+```bash
+alias wd="cd \$(walked path/to/your/walked.toml)"
 ```
 
 Now, you can use the `wd` command to use `walked` and change your working directory with it.
-
 
 # Configuration
 `walked` uses a simple `TOML` file for configuration. You can optionally supply the path to your configuration file as a command line argument to the program. (This would typically be done in your autoexec script mentioned above)
@@ -52,6 +47,7 @@ Boolean and string options can be written like normal. For example:
 # my_conf.toml
 normal_mode_text = "NORM"
 shell_command_placeholder = "%" # Expanded to the current selected file when using :sh
+tmux_display_popup_command = "display-popup -E -w 90% -h 90%"
 ```
 Keybindings can be described with a very simple string format like this:
 ```toml
