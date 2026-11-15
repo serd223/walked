@@ -22,11 +22,12 @@ pub enum CommandKind {
     ShellQuiet,
     ShellOnFile,
     Shell,
+    ChangeDirectory,
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
 }
 
-const COMMANDS: [CommandKind; 12] = [
+const COMMANDS: [CommandKind; 13] = [
     CommandKind::NewFile,
     CommandKind::NewDirectory,
     CommandKind::IncrementalSearch,
@@ -38,6 +39,7 @@ const COMMANDS: [CommandKind; 12] = [
     CommandKind::Unzip,
     CommandKind::ShellQuiet,
     CommandKind::ShellOnFile,
+    CommandKind::ChangeDirectory,
     const {
         // (Exhaustiveness check for CommandKind)
         // Do not forget to add the newly added variant to this array
@@ -54,6 +56,7 @@ const COMMANDS: [CommandKind; 12] = [
             CommandKind::ShellQuiet => (),
             CommandKind::Shell => (),
             CommandKind::ShellOnFile => (),
+            CommandKind::ChangeDirectory => (),
             CommandKind::Custom(_) => (),
         };
         CommandKind::Shell
@@ -75,6 +78,7 @@ impl CommandKind {
             CommandKind::ShellQuiet => "sh!",
             CommandKind::Shell => "sh",
             CommandKind::ShellOnFile => "run",
+            CommandKind::ChangeDirectory => "cd",
             CommandKind::Custom(_) => panic!("Custom commands do not have static command names"),
         }
     }
@@ -263,6 +267,19 @@ impl Window {
                     }
                     CommandKind::NewDirectory => {
                         self.new_dir_with_name(&cmd.arg);
+                    }
+                    CommandKind::ChangeDirectory => {
+                        let mut dir = PathBuf::from(&cmd.arg);
+                        if dir.is_relative() {
+                            dir = self.working_directory.join(dir);
+                        }
+                        if dir.exists() && dir.is_dir() {
+                            if let Ok(dir) = std::fs::canonicalize(dir) {
+                                self.working_directory = dir;
+                                self.read_working_dir();
+                                self.refresh_cursor();
+                            }
+                        }
                     }
                     CommandKind::IncrementalSearch => {
                         self.incremental_search_results.clear();
