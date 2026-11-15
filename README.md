@@ -131,6 +131,8 @@ copy = "CS-c" # Control + Shift + C
 
 `command_mode`: :
 
+`run_shell_command_on_file`: !
+
 `quit`: q
 
 `dir_walk`: `Space`

@@ -20,12 +20,13 @@ pub enum CommandKind {
     Untar,
     Unzip,
     ShellQuiet,
+    ShellOnFile,
     Shell,
     #[allow(dead_code)]
     Custom(String), // NOTE: For future if we need plugins or such
 }
 
-const COMMANDS: [CommandKind; 11] = [
+const COMMANDS: [CommandKind; 12] = [
     CommandKind::NewFile,
     CommandKind::NewDirectory,
     CommandKind::IncrementalSearch,
@@ -36,6 +37,7 @@ const COMMANDS: [CommandKind; 11] = [
     CommandKind::Untar,
     CommandKind::Unzip,
     CommandKind::ShellQuiet,
+    CommandKind::ShellOnFile,
     const {
         // (Exhaustiveness check for CommandKind)
         // Do not forget to add the newly added variant to this array
@@ -51,6 +53,7 @@ const COMMANDS: [CommandKind; 11] = [
             CommandKind::Unzip => (),
             CommandKind::ShellQuiet => (),
             CommandKind::Shell => (),
+            CommandKind::ShellOnFile => (),
             CommandKind::Custom(_) => (),
         };
         CommandKind::Shell
@@ -71,6 +74,7 @@ impl CommandKind {
             CommandKind::Unzip => "unzip",
             CommandKind::ShellQuiet => "sh!",
             CommandKind::Shell => "sh",
+            CommandKind::ShellOnFile => "run",
             CommandKind::Custom(_) => panic!("Custom commands do not have static command names"),
         }
     }
@@ -327,8 +331,9 @@ impl Window {
                             );
                         }
                     }
-                    CommandKind::Shell | CommandKind::ShellQuiet => {
+                    CommandKind::Shell | CommandKind::ShellQuiet | CommandKind::ShellOnFile => {
                         let quiet = matches!(cmd.kind, CommandKind::ShellQuiet);
+                        let on_file = matches!(cmd.kind, CommandKind::ShellOnFile);
                         let cmd = &cmd.arg;
                         if let Some(current_entry) = self.table_state.selected() {
                             if self.selection.len() > 0 {
@@ -336,7 +341,14 @@ impl Window {
                                     if let Some(file_path) =
                                         self.working_directory.join(&self.entries[i].file).to_str()
                                     {
-                                        self.run_shell_command(&cmd, file_path, quiet);
+                                        if on_file {
+                                            let mut cmd = cmd.clone();
+                                            cmd += " ";
+                                            cmd += file_path;
+                                            self.run_shell_command(&cmd, file_path, quiet);
+                                        } else {
+                                            self.run_shell_command(&cmd, file_path, quiet);
+                                        }
                                     }
                                 }
                             } else {
@@ -345,7 +357,14 @@ impl Window {
                                     .join(&self.entries[current_entry].file)
                                     .to_str()
                                 {
-                                    self.run_shell_command(&cmd, file_path, quiet);
+                                    if on_file {
+                                        let mut cmd = cmd.clone();
+                                        cmd += " ";
+                                        cmd += file_path;
+                                        self.run_shell_command(&cmd, file_path, quiet);
+                                    } else {
+                                        self.run_shell_command(&cmd, file_path, quiet);
+                                    }
                                 }
                             }
                         }
@@ -834,6 +853,8 @@ impl Window {
                         self.prompt(CommandKind::IncrementalSearch);
                     } else if key_event == self.config.new_file {
                         self.prompt(CommandKind::NewFile);
+                    } else if key_event == self.config.run_shell_command_on_file {
+                        self.prompt(CommandKind::ShellOnFile);
                     } else if key_event == self.config.new_directory {
                         self.prompt(CommandKind::NewDirectory);
                     } else if key_event == self.config.duplicate && self.entries.len() > 0 {
