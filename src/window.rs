@@ -133,6 +133,7 @@ pub struct Window {
     pub command_prompt: Option<CommandKind>,
     pub clipboard_file: Option<PathBuf>,
     pub in_memory_clipboard: Vec<PathBuf>,
+    prompt_history: Vec<String>,
     pub config: Config,
 }
 
@@ -181,6 +182,7 @@ impl Window {
             command_prompt: None,
             clipboard_file,
             in_memory_clipboard: vec![],
+            prompt_history: vec![],
             config,
         };
         panel.read_working_dir();
@@ -635,6 +637,13 @@ impl Window {
             match self.mode {
                 WindowMode::Prompt => {
                     if key_event.code == KeyCode::Enter && key_event.is_press() {
+                        if self.edit_buffer.is_empty() {
+                            if let Some(p) = self.prompt_history.last() {
+                                self.edit_buffer = p.clone();
+                            }
+                        } else {
+                            self.prompt_history.push(self.edit_buffer.clone());
+                        }
                         if let Some(cmd) = &self.command_prompt {
                             self.queue.push(Command {
                                 kind: cmd.clone(),
@@ -653,6 +662,10 @@ impl Window {
                         self.edit_buffer.clear();
                         self.command_prompt = None;
                         self.mode = WindowMode::Normal;
+                    } else if key_event.code == KeyCode::Up && key_event.is_press() {
+                        if let Some(p) = self.prompt_history.pop() {
+                            self.edit_buffer = p;
+                        }
                     } else if key_event.code == KeyCode::Tab && key_event.is_press() {
                         (|| {
                             let cmd = self.edit_buffer.trim();
