@@ -15,7 +15,7 @@ pub enum TmuxIntegration {
 
 pub struct Config {
     pub tmux_integration: TmuxIntegration,
-    pub tmux_display_popup_command: Vec<String>,
+    pub tmux_display_popup_command: String,
     pub clipboard_file: ClipboardType,
     pub normal_mode_text: String,
     pub select_mode_text: String,
@@ -53,13 +53,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             tmux_integration: TmuxIntegration::FromEnv,
-            tmux_display_popup_command: vec![
-                "display-popup".to_string(),
-                "-w".to_string(),
-                "70%".to_string(),
-                "-h".to_string(),
-                "70%".to_string(),
-            ],
+            tmux_display_popup_command: "display-popup -w 70% -h 70%".to_string(),
             clipboard_file: ClipboardType::TemporaryFile,
             show_working_directory: true,
             simple_working_directory: false,
@@ -304,10 +298,11 @@ impl Config {
         }
         if let Some(v) = toml.get("tmux_display_popup_command") {
             if let Some(v) = v.as_str() {
-                self.tmux_display_popup_command.clear();
-                for v in v.split_whitespace() {
-                    self.tmux_display_popup_command.push(v.to_string());
-                }
+                self.tmux_display_popup_command = v.to_string();
+                // self.tmux_display_popup_command.clear();
+                // for v in v.split_whitespace() {
+                //     self.tmux_display_popup_command.push(v.to_string());
+                // }
             }
         }
         if let Some(v) = toml.get("clipboard_file") {

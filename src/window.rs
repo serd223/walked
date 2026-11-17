@@ -458,21 +458,25 @@ impl Window {
     pub fn run_shell_command(&mut self, cmd: &str, file_path: &str, quiet: bool) {
         let cmd = cmd.replace(&self.config.shell_command_placeholder, file_path);
         if self.do_tmux && !quiet {
-            let mut proc = std::process::Command::new("tmux");
+            let mut proc = std::process::Command::new("sh");
             proc.current_dir(&self.working_directory);
-            for a in &self.config.tmux_display_popup_command {
-                proc.arg(a);
-            }
-            _ = proc
-                .arg("-d")
-                .arg(&self.working_directory)
-                .arg(cmd)
-                .output();
+            proc.arg("-c");
+            let cwd = if let Some(s) = self.working_directory.to_str() {
+                s
+            } else {
+                return;
+            };
+            // TODO: -d here assumes the use of `display-popup`
+            proc.arg(format!(
+                "tmux {} -d {cwd} {}",
+                self.config.tmux_display_popup_command, cmd
+            ));
+            _ = proc.output();
             self.read_working_dir();
             self.refresh_cursor();
             return;
         }
-        match std::process::Command::new("/bin/sh")
+        match std::process::Command::new("sh")
             .current_dir(&self.working_directory)
             .arg("-c")
             .arg(cmd)
